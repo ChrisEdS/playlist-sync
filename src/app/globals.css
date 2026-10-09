@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0b0d10;
+  --bg-elevated: #12161c;
+  --bg-panel: #161b22;
+  --border: #242b36;
+  --text: #f2f4f7;
+  --muted: #8b95a5;
+  --spotify: #1ed760;
+  --tidal: #00d4ff;
+  --accent: #e8ff6b;
+  --danger: #ff5c7a;
+  --progress: #2ee59d;
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --font-sans: var(--font-outfit);
+  --font-display: var(--font-syne);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(30, 215, 96, 0.08), transparent 55%),
+    radial-gradient(900px 500px at 90% 0%, rgba(0, 212, 255, 0.07), transparent 50%),
+    var(--bg);
+  color: var(--text);
+  font-family: var(--font-outfit), system-ui, sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #1f2630;
+  overflow: hidden;
+  display: flex;
+  gap: 2px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1ed760, #2ee59d);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.matching-pill {
+  animation: pulse-soft 2.4s ease-in-out infinite;
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rise {
+  animation: rise 0.45s ease both;
+}

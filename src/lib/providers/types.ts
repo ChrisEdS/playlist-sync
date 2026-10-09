@@ -1,0 +1,30 @@
+export type ServiceProvider = "spotify" | "tidal";
+
+export type NormalizedTrack = {
+  id: string;
+  isrc?: string;
+  title: string;
+  artists: string[];
+  durationMs: number;
+  album?: string;
+  uri?: string;
+};
+
+export type NormalizedPlaylist = {
+  id: string;
+  name: string;
+  trackCount: number;
+  imageUrl?: string;
+  url?: string;
+  owner?: string;
+};
+
+export type TokenBundle = {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: Date;
+  providerUserId?: string;
+  displayName?: string;
+  countryCode?: string;
+  scopes?: string;
+};
