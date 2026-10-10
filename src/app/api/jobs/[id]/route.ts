@@ -10,7 +10,7 @@ export async function GET(_req: Request, { params }: Params) {
   const denied = await requireAuth();
   if (denied) return denied;
   const { id } = await params;
-  const db = getDb();
+  const db = await getDb();
   const rows = await db.select().from(schema.syncJobs).where(eq(schema.syncJobs.id, id)).limit(1);
   if (!rows[0]) return jsonError("Not found", 404);
   return NextResponse.json({ job: rows[0] });

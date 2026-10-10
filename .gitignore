@@ -39,6 +39,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local pglite data
+/data/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.dev-pin

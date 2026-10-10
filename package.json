@@ -12,6 +12,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@neondatabase/serverless": "^1.2.0",
     "@vercel/functions": "^3.9.11",
     "drizzle-orm": "^0.45.4",

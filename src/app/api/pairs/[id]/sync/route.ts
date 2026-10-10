@@ -13,7 +13,7 @@ export async function POST(_req: Request, { params }: Params) {
   const denied = await requireAuth();
   if (denied) return denied;
   const { id } = await params;
-  const db = getDb();
+  const db = await getDb();
   const pairs = await db
     .select()
     .from(schema.playlistPairs)

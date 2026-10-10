@@ -4,7 +4,7 @@ import { getDb, schema } from "../db";
 import type { ServiceProvider, TokenBundle } from "./types";
 
 export async function saveTokens(provider: ServiceProvider, tokens: TokenBundle) {
-  const db = getDb();
+  const db = await getDb();
   const row = {
     provider,
     providerUserId: tokens.providerUserId ?? null,
@@ -27,7 +27,7 @@ export async function saveTokens(provider: ServiceProvider, tokens: TokenBundle)
 }
 
 export async function getAccount(provider: ServiceProvider) {
-  const db = getDb();
+  const db = await getDb();
   const rows = await db
     .select()
     .from(schema.oauthAccounts)

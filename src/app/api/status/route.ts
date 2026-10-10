@@ -10,7 +10,7 @@ export async function GET() {
   if (denied) return denied;
 
   try {
-    const db = getDb();
+    const db = await getDb();
     const [connections, pairs, jobs] = await Promise.all([
       connectionStatus(),
       db.select().from(schema.playlistPairs).orderBy(desc(schema.playlistPairs.createdAt)),

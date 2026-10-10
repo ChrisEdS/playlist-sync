@@ -23,7 +23,7 @@ const createSchema = z.object({
 export async function GET() {
   const denied = await requireAuth();
   if (denied) return denied;
-  const db = getDb();
+  const db = await getDb();
   const pairs = await db
     .select()
     .from(schema.playlistPairs)
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const db = getDb();
+    const db = await getDb();
     const [pair] = await db
       .insert(schema.playlistPairs)
       .values({

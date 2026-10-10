@@ -32,7 +32,7 @@ export type SyncProgress = {
 type SideMap = Map<string, NormalizedTrack>;
 
 async function upsertMatch(key: string, track: NormalizedTrack, side: "spotify" | "tidal") {
-  const db = getDb();
+  const db = await getDb();
   const existing = await db
     .select()
     .from(schema.trackMatches)
@@ -69,7 +69,7 @@ async function resolveIdForSide(
   side: "spotify" | "tidal",
   onProgress?: (p: Partial<SyncProgress>) => Promise<void>,
 ): Promise<string | null> {
-  const db = getDb();
+  const db = await getDb();
   const cached = await db
     .select()
     .from(schema.trackMatches)
@@ -131,7 +131,7 @@ export async function syncPlaylistPair(
   pairId: string,
   onProgress?: (p: SyncProgress) => Promise<void>,
 ): Promise<SyncProgress> {
-  const db = getDb();
+  const db = await getDb();
   const pairs = await db
     .select()
     .from(schema.playlistPairs)
@@ -312,7 +312,7 @@ export async function syncPlaylistPair(
 }
 
 export async function runSyncJob(jobId: string) {
-  const db = getDb();
+  const db = await getDb();
   const jobs = await db.select().from(schema.syncJobs).where(eq(schema.syncJobs.id, jobId)).limit(1);
   const job = jobs[0];
   if (!job?.pairId) throw new Error("Job missing pair");

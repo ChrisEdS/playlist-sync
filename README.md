@@ -58,7 +58,12 @@ Fill `.env.local` (and the same vars in the Vercel project):
 
 ### 5. Database
 
+**Local (default):** leave `DATABASE_URL` empty — the app uses embedded **PGlite** in `./data/pglite` (auto-migrates).
+
+**Production / Neon:**
+
 ```bash
+# set DATABASE_URL in .env.local or Vercel, then:
 npm run db:push
 ```
 
@@ -68,7 +73,7 @@ npm run db:push
 npm run dev
 ```
 
-Open `http://localhost:3000`, enter `APP_PIN`, connect Spotify + Tidal under **Profile**, then **+ New transfer**.
+Open `http://localhost:3000`, enter `APP_PIN` (see `.dev-pin` if generated locally), connect Spotify + Tidal under **Profile**, then **+ New transfer**.
 
 ## Deploy on Vercel
 

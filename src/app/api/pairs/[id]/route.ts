@@ -10,7 +10,7 @@ export async function GET(_req: Request, { params }: Params) {
   const denied = await requireAuth();
   if (denied) return denied;
   const { id } = await params;
-  const db = getDb();
+  const db = await getDb();
   const rows = await db
     .select()
     .from(schema.playlistPairs)
@@ -28,7 +28,7 @@ export async function PATCH(req: Request, { params }: Params) {
     enabled?: boolean;
     name?: string;
   } | null;
-  const db = getDb();
+  const db = await getDb();
   const [pair] = await db
     .update(schema.playlistPairs)
     .set({
@@ -46,7 +46,7 @@ export async function DELETE(_req: Request, { params }: Params) {
   const denied = await requireAuth();
   if (denied) return denied;
   const { id } = await params;
-  const db = getDb();
+  const db = await getDb();
   await db.delete(schema.playlistPairs).where(eq(schema.playlistPairs.id, id));
   return NextResponse.json({ ok: true });
 }
