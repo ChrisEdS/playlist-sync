@@ -1,3 +1,4 @@
+import fs from "fs";
 import path from "path";
 import { neon } from "@neondatabase/serverless";
 import { drizzle as drizzleNeon } from "drizzle-orm/neon-http";
@@ -15,6 +16,7 @@ let _init: Promise<AppDb> | null = null;
 
 async function initPglite(): Promise<AppDb> {
   const dataDir = path.join(process.cwd(), "data", "pglite");
+  fs.mkdirSync(dataDir, { recursive: true });
   const client = new PGlite(dataDir);
   await client.waitReady;
   const db = drizzlePglite(client, { schema });
