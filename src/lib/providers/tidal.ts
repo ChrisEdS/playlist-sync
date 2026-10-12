@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "crypto";
-import { getAppUrl, env } from "../env";
+import { getAppUrl } from "../env";
 import { randomToken } from "../crypto";
 import type { NormalizedPlaylist, NormalizedTrack, TokenBundle } from "./types";
+import { getProviderCredentials } from "./credentials";
 import { getDecryptedTokens, saveTokens } from "./tokens";
 
 const AUTH = "https://login.tidal.com/authorize";
@@ -22,12 +23,25 @@ function pkcePair() {
   return { verifier, challenge };
 }
 
-export function createTidalAuth(): { url: string; state: string; codeVerifier: string } {
+async function tidalAppCreds() {
+  const creds = await getProviderCredentials("tidal");
+  if (!creds.configured) {
+    throw new Error("Tidal Developer App is not configured — add Client ID in Settings");
+  }
+  return creds;
+}
+
+export async function createTidalAuth(): Promise<{
+  url: string;
+  state: string;
+  codeVerifier: string;
+}> {
+  const { clientId } = await tidalAppCreds();
   const state = randomToken(16);
   const { verifier, challenge } = pkcePair();
   const params = new URLSearchParams({
     response_type: "code",
-    client_id: env.tidalClientId,
+    client_id: clientId,
     redirect_uri: `${getAppUrl()}/api/auth/tidal/callback`,
     scope: SCOPES,
     state,
@@ -38,15 +52,16 @@ export function createTidalAuth(): { url: string; state: string; codeVerifier: s
 }
 
 export async function exchangeTidalCode(code: string, codeVerifier: string): Promise<TokenBundle> {
+  const { clientId, clientSecret } = await tidalAppCreds();
   const body = new URLSearchParams({
     grant_type: "authorization_code",
-    client_id: env.tidalClientId,
+    client_id: clientId,
     code,
     redirect_uri: `${getAppUrl()}/api/auth/tidal/callback`,
     code_verifier: codeVerifier,
   });
-  if (env.tidalClientSecret) {
-    body.set("client_secret", env.tidalClientSecret);
+  if (clientSecret) {
+    body.set("client_secret", clientSecret);
   }
   const res = await fetch(TOKEN, {
     method: "POST",
@@ -84,12 +99,13 @@ export async function exchangeTidalCode(code: string, codeVerifier: string): Pro
 }
 
 async function refreshAccessToken(refreshToken: string): Promise<TokenBundle> {
+  const { clientId, clientSecret } = await tidalAppCreds();
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
-    client_id: env.tidalClientId,
+    client_id: clientId,
   });
-  if (env.tidalClientSecret) body.set("client_secret", env.tidalClientSecret);
+  if (clientSecret) body.set("client_secret", clientSecret);
   const res = await fetch(TOKEN, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },

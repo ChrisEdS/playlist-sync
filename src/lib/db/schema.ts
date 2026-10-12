@@ -22,6 +22,16 @@ export const oauthAccounts = pgTable("oauth_accounts", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+/** Developer-app credentials configured in the UI (encrypted at rest). */
+export const providerApps = pgTable("provider_apps", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  provider: text("provider").notNull().unique(), // spotify | tidal
+  clientIdEnc: text("client_id_enc").notNull(),
+  clientSecretEnc: text("client_secret_enc"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const playlistPairs = pgTable("playlist_pairs", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),

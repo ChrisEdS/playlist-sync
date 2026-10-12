@@ -83,7 +83,7 @@ Open `http://localhost:3000`, enter `APP_PIN` (see `.dev-pin` if generated local
 4. Set `APP_URL` to the production URL
 5. After first deploy, run `npm run db:push` against that `DATABASE_URL` (or use Drizzle from CI)
 6. Register the **production** OAuth redirect URIs in Spotify + Tidal
-7. Cron is declared in `vercel.ts` (`*/15 * * * *`). Vercel sends `Authorization: Bearer <CRON_SECRET>` when `CRON_SECRET` is set — keep the same value in project env
+7. Cron is declared in `vercel.ts` (`0 4 * * *` daily on Hobby). Pro can use `*/15 * * * *`. Keep `CRON_SECRET` in project env.
 
 Optional: attach a custom domain (e.g. `sync.toxicstyle.de`) and update `APP_URL` + OAuth redirects.
 

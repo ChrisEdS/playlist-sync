@@ -1,6 +1,7 @@
-import { getAppUrl, env } from "../env";
+import { getAppUrl } from "../env";
 import { randomToken } from "../crypto";
 import type { NormalizedPlaylist, NormalizedTrack, TokenBundle } from "./types";
+import { getProviderCredentials } from "./credentials";
 import { getDecryptedTokens, saveTokens } from "./tokens";
 
 const AUTH = "https://accounts.spotify.com";
@@ -13,9 +14,18 @@ const SCOPES = [
   "user-library-read",
 ].join(" ");
 
-export function spotifyAuthUrl(state: string): string {
+async function spotifyAppCreds() {
+  const creds = await getProviderCredentials("spotify");
+  if (!creds.configured) {
+    throw new Error("Spotify Developer App is not configured — add Client ID & Secret in Settings");
+  }
+  return creds;
+}
+
+export async function spotifyAuthUrl(state: string): Promise<string> {
+  const { clientId } = await spotifyAppCreds();
   const params = new URLSearchParams({
-    client_id: env.spotifyClientId,
+    client_id: clientId,
     response_type: "code",
     redirect_uri: `${getAppUrl()}/api/auth/spotify/callback`,
     scope: SCOPES,
@@ -26,12 +36,13 @@ export function spotifyAuthUrl(state: string): string {
 }
 
 export async function exchangeSpotifyCode(code: string): Promise<TokenBundle> {
+  const { clientId, clientSecret } = await spotifyAppCreds();
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code,
     redirect_uri: `${getAppUrl()}/api/auth/spotify/callback`,
   });
-  const basic = Buffer.from(`${env.spotifyClientId}:${env.spotifyClientSecret}`).toString("base64");
+  const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
   const res = await fetch(`${AUTH}/api/token`, {
     method: "POST",
     headers: {
@@ -62,11 +73,12 @@ export async function exchangeSpotifyCode(code: string): Promise<TokenBundle> {
 }
 
 async function refreshAccessToken(refreshToken: string): Promise<TokenBundle> {
+  const { clientId, clientSecret } = await spotifyAppCreds();
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
   });
-  const basic = Buffer.from(`${env.spotifyClientId}:${env.spotifyClientSecret}`).toString("base64");
+  const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
   const res = await fetch(`${AUTH}/api/token`, {
     method: "POST",
     headers: {

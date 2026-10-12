@@ -1,24 +1,50 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { ServiceBadge } from "@/components/ServiceBadge";
 import { useStatus } from "@/hooks/useStatus";
+
+type CredStatus = {
+  configured: boolean;
+  source: string;
+  clientIdHint: string;
+  hasSecret: boolean;
+};
+
+type CredsPayload = {
+  credentials: { spotify: CredStatus; tidal: CredStatus };
+  redirectUris: { spotify: string; tidal: string };
+  dashboards: { spotify: string; tidal: string };
+};
 
 function SettingsInner() {
   const { data, refresh } = useStatus(5000);
   const params = useSearchParams();
   const router = useRouter();
   const [notice, setNotice] = useState<string | null>(null);
+  const [creds, setCreds] = useState<CredsPayload | null>(null);
+
+  const loadCreds = useCallback(async () => {
+    const res = await fetch("/api/settings/credentials");
+    if (res.ok) setCreds(await res.json());
+  }, []);
 
   useEffect(() => {
     const connected = params.get("connected");
     const error = params.get("error");
     if (connected) setNotice(`${connected} connected`);
-    if (error) setNotice(`Error: ${error}`);
+    if (error === "spotify_credentials_missing") {
+      setNotice("Bitte zuerst Spotify Client ID & Secret speichern.");
+    } else if (error === "tidal_credentials_missing") {
+      setNotice("Bitte zuerst Tidal Client ID speichern.");
+    } else if (error) {
+      setNotice(`Error: ${error}`);
+    }
     refresh();
-  }, [params, refresh]);
+    loadCreds();
+  }, [params, refresh, loadCreds]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -28,47 +54,80 @@ function SettingsInner() {
   return (
     <AppShell>
       <div className="mx-auto max-w-3xl p-6 md:p-10">
+        <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Settings</p>
         <h1
-          className="text-3xl font-semibold"
+          className="mt-2 text-3xl font-semibold"
           style={{ fontFamily: "var(--font-syne), sans-serif" }}
         >
           Profile & Connections
         </h1>
         <p className="mt-2 text-[var(--muted)]">
-          Connect Spotify and Tidal once. Tokens stay encrypted in your Neon database.
+          Zuerst Developer-App-Keys eintragen, dann Spotify und Tidal verbinden. Secrets werden
+          verschlüsselt in Neon gespeichert.
         </p>
 
         {notice ? (
-          <p className="mt-4 rounded-2xl border border-[var(--border)] bg-black/30 px-4 py-3 text-sm">
+          <p className="mt-4 rounded-2xl border border-[var(--border)] bg-black/40 px-4 py-3 text-sm">
             {notice}
           </p>
         ) : null}
 
-        <div className="mt-8 space-y-4">
-          <ConnectionCard
+        <ol className="mt-8 space-y-3 text-sm text-[var(--muted)]">
+          <li className="flex gap-3">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--bg-panel)] text-xs text-white">
+              1
+            </span>
+            Developer App anlegen und Redirect URI eintragen
+          </li>
+          <li className="flex gap-3">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--bg-panel)] text-xs text-white">
+              2
+            </span>
+            Client ID (und Secret) hier speichern
+          </li>
+          <li className="flex gap-3">
+            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--bg-panel)] text-xs text-white">
+              3
+            </span>
+            Mit „Connect“ den Account verknüpfen
+          </li>
+        </ol>
+
+        <div className="mt-8 space-y-6">
+          <ProviderSetup
             service="spotify"
+            title="Spotify"
             connected={Boolean(data?.connections.spotify.connected)}
-            name={data?.connections.spotify.displayName}
+            accountName={data?.connections.spotify.displayName}
+            status={creds?.credentials.spotify}
+            redirectUri={creds?.redirectUris.spotify}
+            dashboardUrl={creds?.dashboards.spotify}
+            requireSecret
+            onSaved={loadCreds}
           />
-          <ConnectionCard
+          <ProviderSetup
             service="tidal"
+            title="Tidal"
             connected={Boolean(data?.connections.tidal.connected)}
-            name={data?.connections.tidal.displayName}
+            accountName={data?.connections.tidal.displayName}
+            status={creds?.credentials.tidal}
+            redirectUri={creds?.redirectUris.tidal}
+            dashboardUrl={creds?.dashboards.tidal}
+            onSaved={loadCreds}
           />
         </div>
 
         <div className="mt-10 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
           <h2 className="font-semibold">Sync schedule</h2>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Vercel Cron hits <code className="text-[var(--accent)]">/api/cron/sync</code> daily
-            (04:00 UTC on Hobby; Pro can run every 15 minutes) and reconciles enabled pairs. Use
-            Sync now anytime.
+            Cron: <code className="text-[var(--accent)]">/api/cron/sync</code> täglich 04:00 UTC
+            (Hobby). Manuell jederzeit über „Sync now“ auf dem Dashboard.
           </p>
         </div>
 
         <button
           onClick={logout}
-          className="mt-8 rounded-2xl border border-[var(--border)] px-4 py-3 text-sm hover:border-[var(--danger)]"
+          className="mt-8 rounded-2xl border border-[var(--border)] px-4 py-3 text-sm text-[var(--muted)] hover:border-[var(--danger)] hover:text-white"
         >
           Lock instance
         </button>
@@ -77,33 +136,197 @@ function SettingsInner() {
   );
 }
 
-function ConnectionCard({
+function ProviderSetup({
   service,
+  title,
   connected,
-  name,
+  accountName,
+  status,
+  redirectUri,
+  dashboardUrl,
+  requireSecret,
+  onSaved,
 }: {
   service: "spotify" | "tidal";
+  title: string;
   connected: boolean;
-  name?: string | null;
+  accountName?: string | null;
+  status?: CredStatus;
+  redirectUri?: string;
+  dashboardUrl?: string;
+  requireSecret?: boolean;
+  onSaved: () => void;
 }) {
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [savedOk, setSavedOk] = useState(false);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    setSavedOk(false);
+    try {
+      const res = await fetch("/api/settings/credentials", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: service,
+          clientId,
+          clientSecret: clientSecret || undefined,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Save failed");
+      setClientId("");
+      setClientSecret("");
+      setSavedOk(true);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function copyRedirect() {
+    if (!redirectUri) return;
+    await navigator.clipboard.writeText(redirectUri);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  const canConnect = Boolean(status?.configured);
+
   return (
-    <div className="flex flex-col gap-4 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <div className="flex items-center gap-3">
-          <ServiceBadge service={service} />
-          <span className="text-sm text-[var(--muted)]">
-            {connected ? "Connected" : "Not connected"}
-          </span>
+    <section className="rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5 md:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <ServiceBadge service={service} />
+            <StatusPill
+              ok={connected}
+              label={connected ? "Account connected" : "Account not connected"}
+            />
+            <StatusPill
+              ok={Boolean(status?.configured)}
+              label={status?.configured ? "App keys saved" : "App keys missing"}
+            />
+          </div>
+          <h2 className="mt-3 text-xl font-semibold">{title}</h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            {connected
+              ? accountName || "Account linked"
+              : status?.configured
+                ? `Keys ready${status.clientIdHint ? ` (${status.clientIdHint})` : ""}`
+                : "Keys eintragen, dann verbinden"}
+          </p>
         </div>
-        <p className="mt-2 text-lg font-medium">{name || (connected ? "Account linked" : "—")}</p>
+        {canConnect ? (
+          <a
+            href={`/api/auth/${service}`}
+            className="inline-flex items-center justify-center rounded-2xl bg-[var(--spotify)] px-5 py-3 text-sm font-semibold text-black hover:brightness-110"
+            style={
+              service === "tidal"
+                ? { background: "var(--tidal)", color: "#041018" }
+                : undefined
+            }
+          >
+            {connected ? "Reconnect" : "Connect account"}
+          </a>
+        ) : (
+          <span className="rounded-2xl border border-[var(--border)] px-5 py-3 text-sm text-[var(--muted)]">
+            Connect nach Key-Save
+          </span>
+        )}
       </div>
-      <a
-        href={`/api/auth/${service}`}
-        className="rounded-2xl bg-white px-4 py-3 text-center text-sm font-semibold text-black"
-      >
-        {connected ? "Reconnect" : "Connect"}
-      </a>
-    </div>
+
+      <div className="mt-6 grid gap-4 border-t border-[var(--border)] pt-5">
+        <div>
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--muted)]">Redirect URI</p>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+            <code className="flex-1 break-all rounded-xl border border-[var(--border)] bg-black/40 px-3 py-2 text-xs text-[var(--accent)]">
+              {redirectUri || "…"}
+            </code>
+            <button
+              type="button"
+              onClick={copyRedirect}
+              className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm hover:border-white"
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+          {dashboardUrl ? (
+            <a
+              href={dashboardUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-block text-sm text-[var(--tidal)] underline-offset-2 hover:underline"
+            >
+              Open {title} Developer Dashboard ↗
+            </a>
+          ) : null}
+        </div>
+
+        <form onSubmit={save} className="grid gap-3">
+          <label className="block text-sm text-[var(--muted)]">
+            Client ID
+            <input
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              placeholder={status?.clientIdHint ? `Saved: ${status.clientIdHint}` : "Paste Client ID"}
+              autoComplete="off"
+              className="mt-1.5 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-white outline-none focus:border-[var(--spotify)]"
+              required
+            />
+          </label>
+          <label className="block text-sm text-[var(--muted)]">
+            Client Secret{requireSecret ? "" : " (optional)"}
+            <input
+              type="password"
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.target.value)}
+              placeholder={
+                status?.hasSecret ? "Saved — enter to replace" : "Paste Client Secret"
+              }
+              autoComplete="new-password"
+              className="mt-1.5 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-white outline-none focus:border-[var(--spotify)]"
+              required={Boolean(requireSecret && !status?.hasSecret)}
+            />
+          </label>
+          {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
+          {savedOk ? <p className="text-sm text-[var(--progress)]">Saved.</p> : null}
+          <button
+            type="submit"
+            disabled={saving || !clientId.trim()}
+            className="justify-self-start rounded-2xl bg-white px-5 py-2.5 text-sm font-semibold text-black disabled:opacity-40"
+          >
+            {saving ? "Saving…" : status?.configured ? "Update keys" : "Save keys"}
+          </button>
+        </form>
+      </div>
+    </section>
+  );
+}
+
+function StatusPill({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs"
+      style={{
+        background: ok ? "rgba(46,229,157,0.12)" : "rgba(255,92,122,0.12)",
+        color: ok ? "var(--progress)" : "var(--danger)",
+      }}
+    >
+      <span
+        className="h-1.5 w-1.5 rounded-full"
+        style={{ background: ok ? "var(--progress)" : "var(--danger)" }}
+      />
+      {label}
+    </span>
   );
 }
 
