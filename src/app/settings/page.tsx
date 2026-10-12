@@ -60,8 +60,9 @@ function SettingsInner() {
         <div className="mt-10 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
           <h2 className="font-semibold">Sync schedule</h2>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Vercel Cron hits <code className="text-[var(--accent)]">/api/cron/sync</code> every
-            15 minutes and reconciles all enabled playlist pairs.
+            Vercel Cron hits <code className="text-[var(--accent)]">/api/cron/sync</code> daily
+            (04:00 UTC on Hobby; Pro can run every 15 minutes) and reconciles enabled pairs. Use
+            Sync now anytime.
           </p>
         </div>
 
