@@ -41,6 +41,8 @@ export const playlistPairs = pgTable("playlist_pairs", {
   tidalPlaylistUrl: text("tidal_playlist_url"),
   coverImages: jsonb("cover_images").$type<string[]>().default([]),
   enabled: integer("enabled").notNull().default(1),
+  /** additive = only add missing tracks; mirror = also propagate removals */
+  syncMode: text("sync_mode").notNull().default("additive"),
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   lastError: text("last_error"),
   songCount: integer("song_count").notNull().default(0),
@@ -48,6 +50,9 @@ export const playlistPairs = pgTable("playlist_pairs", {
   unmatchedCount: integer("unmatched_count").notNull().default(0),
   progressPercent: integer("progress_percent").notNull().default(0),
   status: text("status").notNull().default("idle"), // idle | syncing | matching | error
+  unmatchedTracks: jsonb("unmatched_tracks")
+    .$type<Array<{ title: string; artists: string[]; side: string }>>()
+    .default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

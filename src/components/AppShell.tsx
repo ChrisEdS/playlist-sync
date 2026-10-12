@@ -4,8 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const nav = [
-  { href: "/dashboard", label: "Transfer", icon: "⇄" },
-  { href: "/settings", label: "Profile", icon: "●" },
+  { href: "/dashboard", label: "Playlists", icon: "⇄" },
+  { href: "/settings", label: "Settings", icon: "●" },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -23,7 +23,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           MS
         </Link>
         {nav.map((item) => {
-          const active = pathname.startsWith(item.href);
+          const active = pathname.startsWith(item.href) || (item.href === "/dashboard" && pathname.startsWith("/pairs"));
           return (
             <Link
               key={item.href}

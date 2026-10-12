@@ -40,6 +40,11 @@ function timingSafeEqual(a: string, b: string): boolean {
   return out === 0;
 }
 
+function pinDisabled(): boolean {
+  const flag = (process.env.DISABLE_APP_PIN || "").toLowerCase();
+  return flag === "1" || flag === "true" || flag === "yes";
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   if (
@@ -48,6 +53,16 @@ export async function middleware(req: NextRequest) {
     pathname.includes(".") ||
     PUBLIC_EXACT.has(pathname)
   ) {
+    return NextResponse.next();
+  }
+
+  // Single auth layer: Vercel Deployment Protection can replace the app PIN.
+  if (pinDisabled()) {
+    if (pathname === "/login") {
+      const url = req.nextUrl.clone();
+      url.pathname = "/dashboard";
+      return NextResponse.redirect(url);
+    }
     return NextResponse.next();
   }
 

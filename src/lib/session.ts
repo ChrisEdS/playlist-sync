@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
+import { isAppPinDisabled } from "./auth-mode";
 import { env } from "./env";
 
 const COOKIE_NAME = "ms_session";
@@ -28,6 +29,7 @@ function verify(signed: string): string | null {
 }
 
 export async function isAuthenticated(): Promise<boolean> {
+  if (isAppPinDisabled()) return true;
   const jar = await cookies();
   const raw = jar.get(COOKIE_NAME)?.value;
   if (!raw) return false;

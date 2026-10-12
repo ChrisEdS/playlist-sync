@@ -103,7 +103,10 @@ function SettingsInner() {
             redirectUri={creds?.redirectUris.spotify}
             dashboardUrl={creds?.dashboards.spotify}
             requireSecret
-            onSaved={loadCreds}
+            onSaved={() => {
+              loadCreds();
+              refresh();
+            }}
           />
           <ProviderSetup
             service="tidal"
@@ -113,15 +116,23 @@ function SettingsInner() {
             status={creds?.credentials.tidal}
             redirectUri={creds?.redirectUris.tidal}
             dashboardUrl={creds?.dashboards.tidal}
-            onSaved={loadCreds}
+            onSaved={() => {
+              loadCreds();
+              refresh();
+            }}
           />
         </div>
 
         <div className="mt-10 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
           <h2 className="font-semibold">Sync schedule</h2>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Cron: <code className="text-[var(--accent)]">/api/cron/sync</code> täglich 04:00 UTC
-            (Hobby). Manuell jederzeit über „Sync now“ auf dem Dashboard.
+            Cron: <code className="text-[var(--accent)]">/api/cron/sync</code> daily 04:00 UTC
+            (Hobby). Use Sync now anytime from the dashboard.
+          </p>
+          <p className="mt-3 text-xs text-[var(--muted)]">
+            Auth: with Vercel Deployment Protection you can set{" "}
+            <code className="text-[var(--accent)]">DISABLE_APP_PIN=1</code> to drop the app PIN
+            layer.
           </p>
         </div>
 
@@ -307,6 +318,34 @@ function ProviderSetup({
             {saving ? "Saving…" : status?.configured ? "Update keys" : "Save keys"}
           </button>
         </form>
+
+        <div className="flex flex-wrap gap-3">
+          {connected ? (
+            <button
+              type="button"
+              onClick={async () => {
+                await fetch(`/api/connections/${service}`, { method: "DELETE" });
+                onSaved();
+              }}
+              className="text-sm text-[var(--danger)] hover:underline"
+            >
+              Disconnect account
+            </button>
+          ) : null}
+          {status?.configured ? (
+            <button
+              type="button"
+              onClick={async () => {
+                if (!confirm("Clear saved developer keys for this service?")) return;
+                await fetch(`/api/settings/credentials/${service}`, { method: "DELETE" });
+                onSaved();
+              }}
+              className="text-sm text-[var(--muted)] hover:text-white hover:underline"
+            >
+              Clear saved keys
+            </button>
+          ) : null}
+        </div>
       </div>
     </section>
   );

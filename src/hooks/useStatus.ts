@@ -7,6 +7,19 @@ export type StatusPayload = {
     spotify: { connected: boolean; displayName?: string | null };
     tidal: { connected: boolean; displayName?: string | null };
   };
+  credentials?: {
+    spotify: { configured: boolean };
+    tidal: { configured: boolean };
+  };
+  setup?: {
+    spotifyKeys: boolean;
+    tidalKeys: boolean;
+    spotifyConnected: boolean;
+    tidalConnected: boolean;
+    hasPairs: boolean;
+    pinDisabled: boolean;
+    ready: boolean;
+  };
   pairs: Array<{
     id: string;
     name: string;
@@ -15,10 +28,12 @@ export type StatusPayload = {
     unmatchedCount: number;
     progressPercent: number;
     status: string;
+    syncMode?: string;
     coverImages: string[] | null;
     lastSyncedAt: string | null;
     lastError: string | null;
     enabled: number;
+    unmatchedTracks?: Array<{ title: string; artists: string[]; side: string }> | null;
   }>;
   jobs: Array<{
     id: string;

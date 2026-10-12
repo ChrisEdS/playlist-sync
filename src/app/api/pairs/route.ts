@@ -5,7 +5,6 @@ import { requireAuth, jsonError } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { createSpotifyPlaylist } from "@/lib/providers/spotify";
 import { createTidalPlaylist } from "@/lib/providers/tidal";
-import { runSyncJob } from "@/lib/sync/engine";
 
 export const maxDuration = 300;
 
@@ -18,6 +17,7 @@ const createSchema = z.object({
   coverImage: z.string().optional(),
   targetPlaylistId: z.string().optional(),
   createTarget: z.boolean().optional(),
+  syncMode: z.enum(["additive", "mirror"]).optional(),
 });
 
 export async function GET() {
@@ -76,30 +76,14 @@ export async function POST(req: Request) {
         spotifyPlaylistUrl: spotifyPlaylistUrl || null,
         tidalPlaylistUrl: tidalPlaylistUrl || null,
         coverImages: data.coverImage ? [data.coverImage] : [],
-        status: "syncing",
+        syncMode: data.syncMode || "additive",
+        status: "idle",
         progressPercent: 0,
       })
       .returning();
 
-    const [job] = await db
-      .insert(schema.syncJobs)
-      .values({
-        pairId: pair.id,
-        type: "sync",
-        status: "queued",
-        message: "Starting sync…",
-      })
-      .returning();
-
-    // Run sync in-request (Vercel maxDuration 300s). Fire after response via waitUntil if available.
-    const { waitUntil } = await import("@vercel/functions");
-    waitUntil(
-      runSyncJob(job.id).catch((err) => {
-        console.error("Sync job failed", err);
-      }),
-    );
-
-    return NextResponse.json({ pair, job }, { status: 201 });
+    // Do not auto-sync — client shows preview then starts sync.
+    return NextResponse.json({ pair }, { status: 201 });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "Failed to create pair", 500);
   }

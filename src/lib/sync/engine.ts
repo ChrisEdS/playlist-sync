@@ -29,6 +29,16 @@ export type SyncProgress = {
   unmatchedTracks: Array<{ title: string; artists: string[]; side: string }>;
 };
 
+export type SyncPlan = {
+  syncMode: "additive" | "mirror";
+  addToSpotify: number;
+  addToTidal: number;
+  removeFromSpotify: number;
+  removeFromTidal: number;
+  sampleAdds: Array<{ title: string; artists: string[]; to: "spotify" | "tidal" }>;
+  sampleRemoves: Array<{ title: string; artists: string[]; from: "spotify" | "tidal" }>;
+};
+
 type SideMap = Map<string, NormalizedTrack>;
 
 async function upsertMatch(key: string, track: NormalizedTrack, side: "spotify" | "tidal") {
@@ -127,10 +137,7 @@ async function toSideMap(
   return map;
 }
 
-export async function syncPlaylistPair(
-  pairId: string,
-  onProgress?: (p: SyncProgress) => Promise<void>,
-): Promise<SyncProgress> {
+async function loadReconcileState(pairId: string) {
   const db = await getDb();
   const pairs = await db
     .select()
@@ -139,25 +146,6 @@ export async function syncPlaylistPair(
     .limit(1);
   const pair = pairs[0];
   if (!pair) throw new Error("Playlist pair not found");
-
-  const progress: SyncProgress = {
-    total: 0,
-    processed: 0,
-    matched: 0,
-    unmatched: 0,
-    addedSpotify: 0,
-    addedTidal: 0,
-    removedSpotify: 0,
-    removedTidal: 0,
-    unmatchedTracks: [],
-    message: "Loading playlists…",
-  };
-  await onProgress?.(progress);
-
-  await db
-    .update(schema.playlistPairs)
-    .set({ status: "syncing", updatedAt: new Date(), lastError: null })
-    .where(eq(schema.playlistPairs.id, pairId));
 
   const [spotifyTracks, tidalTracks] = await Promise.all([
     getSpotifyPlaylistTracks(pair.spotifyPlaylistId),
@@ -189,21 +177,118 @@ export async function syncPlaylistPair(
   for (const k of spotifyAdded) desired.add(k);
   for (const k of tidalAdded) desired.add(k);
 
-  // First sync (empty snapshot): union both sides
   if (snapshot.size === 0) {
     desired.clear();
     for (const k of spotifyKeys) desired.add(k);
     for (const k of tidalKeys) desired.add(k);
   }
 
-  const addToSpotify = [...desired].filter((k) => !spotifyKeys.has(k));
-  const removeFromSpotify = [...spotifyKeys].filter((k) => !desired.has(k));
-  const addToTidal = [...desired].filter((k) => !tidalKeys.has(k));
-  const removeFromTidal = [...tidalKeys].filter((k) => !desired.has(k));
+  const syncMode = (pair.syncMode === "mirror" ? "mirror" : "additive") as
+    | "additive"
+    | "mirror";
+
+  let addToSpotify = [...desired].filter((k) => !spotifyKeys.has(k));
+  let addToTidal = [...desired].filter((k) => !tidalKeys.has(k));
+  let removeFromSpotify = [...spotifyKeys].filter((k) => !desired.has(k));
+  let removeFromTidal = [...tidalKeys].filter((k) => !desired.has(k));
+
+  if (syncMode === "additive") {
+    // Never remove; desired stays as union of both sides + snapshot adds
+    removeFromSpotify = [];
+    removeFromTidal = [];
+    const union = new Set([...spotifyKeys, ...tidalKeys]);
+    addToSpotify = [...union].filter((k) => !spotifyKeys.has(k));
+    addToTidal = [...union].filter((k) => !tidalKeys.has(k));
+  }
+
+  return {
+    db,
+    pair,
+    syncMode,
+    spotifyMap,
+    tidalMap,
+    desired:
+      syncMode === "additive"
+        ? new Set([...spotifyKeys, ...tidalKeys])
+        : desired,
+    addToSpotify,
+    addToTidal,
+    removeFromSpotify,
+    removeFromTidal,
+  };
+}
+
+export async function previewPlaylistPair(pairId: string): Promise<SyncPlan> {
+  const state = await loadReconcileState(pairId);
+  const sampleAdds: SyncPlan["sampleAdds"] = [];
+  for (const key of state.addToSpotify.slice(0, 8)) {
+    const t = state.tidalMap.get(key);
+    if (t) sampleAdds.push({ title: t.title, artists: t.artists, to: "spotify" });
+  }
+  for (const key of state.addToTidal.slice(0, 8)) {
+    const t = state.spotifyMap.get(key);
+    if (t) sampleAdds.push({ title: t.title, artists: t.artists, to: "tidal" });
+  }
+  const sampleRemoves: SyncPlan["sampleRemoves"] = [];
+  for (const key of state.removeFromSpotify.slice(0, 8)) {
+    const t = state.spotifyMap.get(key);
+    if (t) sampleRemoves.push({ title: t.title, artists: t.artists, from: "spotify" });
+  }
+  for (const key of state.removeFromTidal.slice(0, 8)) {
+    const t = state.tidalMap.get(key);
+    if (t) sampleRemoves.push({ title: t.title, artists: t.artists, from: "tidal" });
+  }
+  return {
+    syncMode: state.syncMode,
+    addToSpotify: state.addToSpotify.length,
+    addToTidal: state.addToTidal.length,
+    removeFromSpotify: state.removeFromSpotify.length,
+    removeFromTidal: state.removeFromTidal.length,
+    sampleAdds: sampleAdds.slice(0, 12),
+    sampleRemoves: sampleRemoves.slice(0, 12),
+  };
+}
+
+export async function syncPlaylistPair(
+  pairId: string,
+  onProgress?: (p: SyncProgress) => Promise<void>,
+): Promise<SyncProgress> {
+  const progress: SyncProgress = {
+    total: 0,
+    processed: 0,
+    matched: 0,
+    unmatched: 0,
+    addedSpotify: 0,
+    addedTidal: 0,
+    removedSpotify: 0,
+    removedTidal: 0,
+    unmatchedTracks: [],
+    message: "Loading playlists…",
+  };
+  await onProgress?.(progress);
+
+  const {
+    db,
+    pair,
+    syncMode,
+    spotifyMap,
+    tidalMap,
+    desired,
+    addToSpotify,
+    addToTidal,
+    removeFromSpotify,
+    removeFromTidal,
+  } = await loadReconcileState(pairId);
+
+  await db
+    .update(schema.playlistPairs)
+    .set({ status: "syncing", updatedAt: new Date(), lastError: null })
+    .where(eq(schema.playlistPairs.id, pairId));
 
   progress.total =
     addToSpotify.length + removeFromSpotify.length + addToTidal.length + removeFromTidal.length;
-  progress.message = "Reconciling…";
+  progress.message =
+    syncMode === "additive" ? "Additive sync…" : "Mirror sync…";
   await onProgress?.(progress);
 
   const spotifyAddIds: string[] = [];
@@ -294,11 +379,12 @@ export async function syncPlaylistPair(
   await db
     .update(schema.playlistPairs)
     .set({
-      status: progress.unmatched ? "idle" : "idle",
+      status: "idle",
       lastSyncedAt: new Date(),
       songCount,
       matchedCount: Math.max(0, matchedCount),
       unmatchedCount: progress.unmatched,
+      unmatchedTracks: progress.unmatchedTracks,
       progressPercent: progressPercent || 100,
       updatedAt: new Date(),
       lastError: null,

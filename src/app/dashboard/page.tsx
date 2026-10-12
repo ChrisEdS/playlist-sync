@@ -18,19 +18,15 @@ export default function DashboardPage() {
       const q = query.toLowerCase();
       list = list.filter((p) => p.name.toLowerCase().includes(q));
     }
-    if (sort === "name") {
-      list = [...list].sort((a, b) => a.name.localeCompare(b.name));
-    } else if (sort === "progress") {
+    if (sort === "name") list = [...list].sort((a, b) => a.name.localeCompare(b.name));
+    else if (sort === "progress") {
       list = [...list].sort((a, b) => b.progressPercent - a.progressPercent);
     }
     return list;
   }, [data?.pairs, query, sort]);
 
-  const matchingMessage =
-    data?.activeJob?.message ||
-    (data?.activeJob?.currentTrack
-      ? `MATCHING: ${data.activeJob.currentTrack}`
-      : null);
+  const setup = data?.setup;
+  const showOnboarding = setup && !setup.ready;
 
   async function syncPair(id: string) {
     await fetch(`/api/pairs/${id}/sync`, { method: "POST" });
@@ -43,7 +39,7 @@ export default function DashboardPage() {
         <section className="border-r border-[var(--border)] bg-black/20 p-5 space-y-5">
           <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5 rise">
             <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-              Currently Being Processed
+              Currently syncing
             </p>
             {data?.activePair || data?.activeJob ? (
               <>
@@ -83,16 +79,16 @@ export default function DashboardPage() {
             <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Summary</p>
             <div className="mt-4 space-y-3">
               <div className="flex justify-between text-sm">
-                <span className="text-[var(--muted)]">Total Playlists</span>
+                <span className="text-[var(--muted)]">Synced playlists</span>
                 <strong>{data?.summary.totalPlaylists ?? "—"}</strong>
               </div>
               <div className="flex justify-between text-sm">
-                <span className="text-[var(--muted)]">Total Songs</span>
+                <span className="text-[var(--muted)]">Total songs</span>
                 <strong>{data?.summary.totalSongs ?? "—"}</strong>
               </div>
               <div>
                 <div className="mb-2 flex justify-between text-sm">
-                  <span className="text-[var(--muted)]">Overall Progress</span>
+                  <span className="text-[var(--muted)]">Overall progress</span>
                   <strong>{data?.summary.overallProgress ?? 0}%</strong>
                 </div>
                 <ProgressBar value={data?.summary.overallProgress ?? 0} />
@@ -102,31 +98,65 @@ export default function DashboardPage() {
         </section>
 
         <section className="relative p-6 md:p-8">
-          {matchingMessage ? (
-            <div className="matching-pill pointer-events-none absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full border border-[var(--border)] bg-black/70 px-4 py-2 text-xs uppercase tracking-wide text-[var(--accent)] backdrop-blur">
-              {matchingMessage}
-            </div>
-          ) : null}
-
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
               <h1
                 className="text-3xl font-semibold tracking-tight"
                 style={{ fontFamily: "var(--font-syne), sans-serif" }}
               >
-                Your Transfers ({data?.summary.totalPlaylists ?? 0})
+                Synced playlists ({data?.summary.totalPlaylists ?? 0})
               </h1>
               <p className="mt-1 text-sm text-[var(--muted)]">
-                Bidirectional Voll-Sync between Spotify and Tidal
+                Keep paired Spotify ↔ Tidal playlists in sync
               </p>
             </div>
             <Link
-              href="/transfers/new"
-              className="inline-flex items-center justify-center rounded-2xl bg-[linear-gradient(120deg,#b8ff57,#1ed760_45%,#ffe56b)] px-5 py-3 font-semibold text-black shadow-[0_10px_40px_rgba(30,215,96,0.25)]"
+              href="/pairs/new"
+              className={`inline-flex items-center justify-center rounded-2xl px-5 py-3 font-semibold text-black ${
+                setup && !setup.ready
+                  ? "bg-white/20 text-white/50 pointer-events-none"
+                  : "bg-[linear-gradient(120deg,#b8ff57,#1ed760_45%,#ffe56b)] shadow-[0_10px_40px_rgba(30,215,96,0.25)]"
+              }`}
             >
-              + New transfer
+              + Pair playlist
             </Link>
           </div>
+
+          {showOnboarding ? (
+            <div className="mt-6 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-6">
+              <h2 className="text-lg font-semibold">Getting started</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                Complete these steps once — then pair your first playlist.
+              </p>
+              <ul className="mt-5 space-y-3">
+                <OnboardingStep
+                  done={setup.spotifyKeys}
+                  href="/settings"
+                  label="Save Spotify Developer keys"
+                />
+                <OnboardingStep
+                  done={setup.tidalKeys}
+                  href="/settings"
+                  label="Save Tidal Developer keys"
+                />
+                <OnboardingStep
+                  done={setup.spotifyConnected}
+                  href="/settings"
+                  label="Connect Spotify account"
+                />
+                <OnboardingStep
+                  done={setup.tidalConnected}
+                  href="/settings"
+                  label="Connect Tidal account"
+                />
+                <OnboardingStep
+                  done={setup.hasPairs}
+                  href={setup.ready ? "/pairs/new" : "/settings"}
+                  label="Pair your first playlist"
+                />
+              </ul>
+            </div>
+          ) : null}
 
           <div className="mt-6 flex flex-col gap-3 md:flex-row">
             <input
@@ -140,7 +170,7 @@ export default function DashboardPage() {
               onChange={(e) => setSort(e.target.value)}
               className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] px-4 py-3"
             >
-              <option value="newest">Newest First</option>
+              <option value="newest">Newest first</option>
               <option value="name">Name</option>
               <option value="progress">Progress</option>
             </select>
@@ -148,9 +178,7 @@ export default function DashboardPage() {
 
           {error ? (
             <p className="mt-6 rounded-2xl border border-[var(--danger)]/40 bg-[var(--danger)]/10 p-4 text-sm">
-              {error.includes("DATABASE_URL")
-                ? "Database not configured. Set DATABASE_URL (Neon) and run npm run db:push."
-                : error}
+              {error}
             </p>
           ) : null}
 
@@ -161,22 +189,22 @@ export default function DashboardPage() {
                 className="rise flex flex-col gap-4 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)]/90 p-4 md:flex-row md:items-center md:justify-between"
                 style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
               >
-                <div className="min-w-0 flex-1">
+                <Link href={`/pairs/${pair.id}`} className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-3">
                     <h3 className="truncate text-lg font-semibold">{pair.name}</h3>
                     <span className="text-sm text-[var(--muted)]">{pair.songCount} songs</span>
-                    <span className="text-sm text-[var(--progress)]">
-                      {pair.progressPercent || 0}%
+                    <span className="rounded-full bg-black/40 px-2 py-0.5 text-xs text-[var(--muted)]">
+                      {pair.syncMode === "mirror" ? "Mirror" : "Additive"}
                     </span>
-                    {pair.status === "syncing" || pair.status === "matching" ? (
+                    {pair.status === "syncing" ? (
                       <span className="inline-flex items-center gap-2 text-sm text-[var(--spotify)]">
                         <span className="h-2 w-2 rounded-full bg-[var(--spotify)]" />
-                        Syncing now
+                        Syncing
                       </span>
                     ) : pair.status === "error" ? (
                       <span className="text-sm text-[var(--danger)]">Error</span>
                     ) : (
-                      <span className="text-sm text-[var(--muted)]">In sync</span>
+                      <span className="text-sm text-[var(--muted)]">Idle</span>
                     )}
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -184,48 +212,35 @@ export default function DashboardPage() {
                     <ServiceBadge service="tidal" />
                   </div>
                   {pair.lastError ? (
-                    <p className="mt-2 text-xs text-[var(--danger)]">{pair.lastError}</p>
+                    <p className="mt-2 text-xs text-[var(--danger)] line-clamp-2">{pair.lastError}</p>
                   ) : null}
                   {pair.unmatchedCount > 0 ? (
-                    <p className="mt-1 text-xs text-[var(--muted)]">
-                      {pair.unmatchedCount} unmatched tracks
+                    <p className="mt-1 text-xs text-[var(--accent)]">
+                      {pair.unmatchedCount} unmatched — open details
                     </p>
                   ) : null}
-                </div>
+                </Link>
                 <div className="flex items-center gap-3">
-                  <div className="grid grid-cols-2 gap-1">
-                    {(pair.coverImages || []).slice(0, 4).map((src, idx) => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        key={idx}
-                        src={src}
-                        alt=""
-                        className="h-10 w-10 rounded-md object-cover bg-[#222]"
-                      />
-                    ))}
-                    {!pair.coverImages?.length ? (
-                      <>
-                        <div className="h-10 w-10 rounded-md bg-[#222]" />
-                        <div className="h-10 w-10 rounded-md bg-[#222]" />
-                        <div className="h-10 w-10 rounded-md bg-[#222]" />
-                        <div className="h-10 w-10 rounded-md bg-[#222]" />
-                      </>
-                    ) : null}
-                  </div>
                   <button
                     onClick={() => syncPair(pair.id)}
                     className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm hover:border-[var(--spotify)]"
                   >
                     Sync now
                   </button>
+                  <Link
+                    href={`/pairs/${pair.id}`}
+                    className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-black"
+                  >
+                    Details
+                  </Link>
                 </div>
               </article>
             ))}
-            {!pairs.length && !error ? (
+            {!pairs.length && !error && setup?.ready ? (
               <div className="rounded-3xl border border-dashed border-[var(--border)] p-10 text-center text-[var(--muted)]">
                 No playlist pairs yet.{" "}
-                <Link href="/transfers/new" className="text-[var(--spotify)]">
-                  Create your first transfer
+                <Link href="/pairs/new" className="text-[var(--spotify)]">
+                  Pair your first playlist
                 </Link>
               </div>
             ) : null}
@@ -233,5 +248,38 @@ export default function DashboardPage() {
         </section>
       </div>
     </AppShell>
+  );
+}
+
+function OnboardingStep({
+  done,
+  href,
+  label,
+}: {
+  done: boolean;
+  href: string;
+  label: string;
+}) {
+  return (
+    <li>
+      <Link
+        href={href}
+        className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm ${
+          done
+            ? "border-[var(--progress)]/30 text-[var(--progress)]"
+            : "border-[var(--border)] hover:border-white"
+        }`}
+      >
+        <span
+          className="grid h-5 w-5 place-items-center rounded-full text-xs"
+          style={{
+            background: done ? "rgba(46,229,157,0.2)" : "rgba(255,255,255,0.06)",
+          }}
+        >
+          {done ? "✓" : "·"}
+        </span>
+        {label}
+      </Link>
+    </li>
   );
 }
