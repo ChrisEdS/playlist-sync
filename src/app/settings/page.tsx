@@ -10,10 +10,27 @@ const DEVELOPER_APPS = {
   spotify: {
     label: "Spotify Developer Dashboard",
     url: "https://developer.spotify.com/dashboard",
+    scopes: [
+      "playlist-read-private",
+      "playlist-read-collaborative",
+      "playlist-modify-public",
+      "playlist-modify-private",
+      "user-library-read",
+    ],
+    scopeHint: "Spotify fragt diese Scopes beim Connect an (kein Dashboard-Toggle nötig).",
   },
   tidal: {
     label: "Tidal Developer Portal",
     url: "https://developer.tidal.com/dashboard",
+    scopes: [
+      "playlists.read",
+      "playlists.write",
+      "collection.read",
+      "collection.write",
+      "search.read",
+      "user.read",
+    ],
+    scopeHint: "In der Tidal Developer App genau diese Scopes aktivieren — sonst Error 1002.",
   },
 } as const;
 
@@ -319,6 +336,23 @@ function ProviderSetup({
             </a>{" "}
             als Redirect URI eintragen.
           </p>
+        </div>
+
+        <div>
+          <p className="text-xs uppercase tracking-[0.14em] text-[var(--muted)]">
+            Required scopes
+          </p>
+          <p className="mt-1.5 text-xs text-[var(--muted)]">{developerApp.scopeHint}</p>
+          <ul className="mt-2 flex flex-wrap gap-1.5">
+            {developerApp.scopes.map((scope) => (
+              <li
+                key={scope}
+                className="rounded-lg border border-[var(--border)] bg-black/40 px-2 py-1 font-mono text-[11px] text-[var(--accent)]"
+              >
+                {scope}
+              </li>
+            ))}
+          </ul>
         </div>
 
         <form onSubmit={save} className="grid gap-3">

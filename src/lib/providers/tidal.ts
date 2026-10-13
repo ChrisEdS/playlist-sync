@@ -194,59 +194,64 @@ function includedName(included: Array<Record<string, unknown>> | undefined, id: 
   return attrs?.name;
 }
 
-export async function listTidalPlaylists(): Promise<NormalizedPlaylist[]> {
-  const tokens = await getDecryptedTokens("tidal");
-  const userId = tokens?.providerUserId;
-  if (!userId) throw new Error("Tidal user id missing — reconnect Tidal");
+function normalizePlaylist(p: PlaylistResource): NormalizedPlaylist | null {
+  if (!p?.id) return null;
+  if (p.type && p.type !== "playlists" && !p.attributes?.name) return null;
+  return {
+    id: p.id,
+    name: p.attributes?.name || "Untitled",
+    trackCount: p.attributes?.numberOfItems || 0,
+    imageUrl: p.attributes?.image?.url,
+    url: p.attributes?.externalLinks?.[0]?.href,
+  };
+}
 
+async function collectPlaylistPages(startPath: string): Promise<NormalizedPlaylist[]> {
   const items: NormalizedPlaylist[] = [];
-  let path: string | null = `/userCollections/${userId}/relationships/playlists?include=playlists&page[size]=50`;
+  const seen = new Set<string>();
+  let path: string | null = startPath;
 
   while (path) {
     const page: JsonApiList<PlaylistResource> =
       await tidalFetchRaw<JsonApiList<PlaylistResource>>(path);
-    const playlists =
-      (page.included?.filter((i: Record<string, unknown>) => i.type === "playlists") as
-        | PlaylistResource[]
-        | undefined) || page.data;
-    for (const p of playlists) {
-      if (p.type && p.type !== "playlists" && !p.attributes?.name) continue;
-      items.push({
-        id: p.id,
-        name: p.attributes?.name || "Untitled",
-        trackCount: p.attributes?.numberOfItems || 0,
-        imageUrl: p.attributes?.image?.url,
-        url: p.attributes?.externalLinks?.[0]?.href,
-      });
+    const fromIncluded = (page.included || []).filter(
+      (i: Record<string, unknown>) => i.type === "playlists",
+    ) as PlaylistResource[];
+    const candidates: PlaylistResource[] = fromIncluded.length
+      ? fromIncluded
+      : page.data || [];
+    for (const p of candidates) {
+      const normalized = normalizePlaylist(p);
+      if (!normalized || seen.has(normalized.id)) continue;
+      seen.add(normalized.id);
+      items.push(normalized);
     }
     path = page.links?.next || null;
-  }
-
-  // Fallback: direct playlists endpoint if collection empty/shape differs
-  if (!items.length) {
-    try {
-      const page = await tidalFetchRaw<JsonApiList<PlaylistResource>>(
-        `/playlists?filter[r.owners.id]=${userId}&page[size]=50`,
-      );
-      for (const p of page.data || []) {
-        items.push({
-          id: p.id,
-          name: p.attributes?.name || "Untitled",
-          trackCount: p.attributes?.numberOfItems || 0,
-          imageUrl: p.attributes?.image?.url,
-          url: p.attributes?.externalLinks?.[0]?.href,
-        });
-      }
-    } catch {
-      // keep empty
-    }
   }
   return items;
 }
 
+export async function listTidalPlaylists(): Promise<NormalizedPlaylist[]> {
+  // Owned playlists (primary). `userCollections/.../playlists` is deprecated and 404s.
+  try {
+    return await collectPlaylistPages(`/playlists?filter[owners.id]=me`);
+  } catch (ownedErr) {
+    // Fallback: favorited playlists in My Collection
+    try {
+      return await collectPlaylistPages(
+        `/userCollectionPlaylists/me/relationships/items?include=items`,
+      );
+    } catch {
+      throw ownedErr instanceof Error
+        ? ownedErr
+        : new Error("Failed to list Tidal playlists");
+    }
+  }
+}
+
 export async function getTidalPlaylistTracks(playlistId: string): Promise<NormalizedTrack[]> {
   const tracks: NormalizedTrack[] = [];
-  let path: string | null = `/playlists/${playlistId}/relationships/items?include=tracks,artists&page[size]=50`;
+  let path: string | null = `/playlists/${playlistId}/relationships/items?include=tracks,artists`;
 
   while (path) {
     const page: JsonApiList<TrackResource> =
@@ -383,7 +388,7 @@ export async function searchTidalTrack(track: NormalizedTrack): Promise<Normaliz
   const data = await tidalFetchRaw<{
     data?: TrackResource[];
     included?: Array<Record<string, unknown>>;
-  }>(`/searchResults/${encodeURIComponent(query)}/relationships/tracks?include=tracks,artists&page[size]=5`);
+  }>(`/searchResults/${encodeURIComponent(query)}/relationships/tracks?include=tracks,artists`);
 
   const tracks =
     (data.included?.filter((i) => i.type === "tracks") as TrackResource[] | undefined) ||

@@ -130,7 +130,7 @@ type SpotifyPlaylistPage = {
   items: Array<{
     id: string;
     name: string;
-    tracks: { total: number };
+    tracks?: { total?: number } | null;
     images?: Array<{ url: string }>;
     external_urls?: { spotify?: string };
     owner?: { display_name?: string };
@@ -160,11 +160,12 @@ export async function listSpotifyPlaylists(): Promise<NormalizedPlaylist[]> {
     const page: SpotifyPlaylistPage = await spotifyFetch<SpotifyPlaylistPage>(
       url.startsWith("http") ? url.replace(API, "") : url,
     );
-    for (const p of page.items) {
+    for (const p of page.items || []) {
+      if (!p?.id) continue;
       items.push({
         id: p.id,
-        name: p.name,
-        trackCount: p.tracks.total,
+        name: p.name || "Untitled",
+        trackCount: p.tracks?.total ?? 0,
         imageUrl: p.images?.[0]?.url,
         url: p.external_urls?.spotify,
         owner: p.owner?.display_name,

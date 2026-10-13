@@ -36,10 +36,17 @@ export default function NewPairPage() {
           fetch(`/api/playlists/${source}`),
           fetch(`/api/playlists/${source === "spotify" ? "tidal" : "spotify"}`),
         ]);
-        if (!srcRes.ok) throw new Error(await srcRes.text());
-        if (!tgtRes.ok) throw new Error(await tgtRes.text());
-        const srcJson = await srcRes.json();
-        const tgtJson = await tgtRes.json();
+        const srcJson = await srcRes.json().catch(() => ({}));
+        const tgtJson = await tgtRes.json().catch(() => ({}));
+        if (!srcRes.ok) {
+          throw new Error(srcJson.error || `Failed to load ${source} playlists`);
+        }
+        if (!tgtRes.ok) {
+          throw new Error(
+            tgtJson.error ||
+              `Failed to load ${source === "spotify" ? "tidal" : "spotify"} playlists`,
+          );
+        }
         if (cancelled) return;
         setPlaylists(srcJson.playlists || []);
         setTargets(tgtJson.playlists || []);
