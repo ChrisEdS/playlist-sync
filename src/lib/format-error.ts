@@ -42,7 +42,16 @@ export function formatApiError(input: unknown, fallback = "Etwas ist schiefgelau
     return "Zugriff verweigert — Scopes oder Account-Rechte prüfen.";
   }
   if (lower.includes("rate limit") || lower.includes("429")) {
-    return "API-Limit erreicht — kurz warten und erneut versuchen.";
+    return "API-Limit erreicht (429) — Tidal/Spotify bittet um eine kurze Pause. Bitte in ein paar Minuten erneut versuchen.";
+  }
+  if (lower.includes("invalid include path") || lower.includes("generic_request_error")) {
+    return "Tidal-API-Format wurde aktualisiert — bitte jetzt synchronisieren.";
+  }
+  if (lower.includes("sicherheitsabbruch") || lower.includes("leere trackliste")) {
+    return "Sicherheits-Notbremse: Leere Playlist erkannt — Sync zum Schutz vor Datenverlust gestoppt.";
+  }
+  if (lower.includes("notbremse") || lower.includes("zurückgehalten")) {
+    return "Lösch-Notbremse: Massenlöschung gestoppt — bitte in Details manuell freigeben.";
   }
 
   // Strip huge JSON blobs / stack noise

@@ -252,54 +252,107 @@ export async function listTidalPlaylists(): Promise<NormalizedPlaylist[]> {
 
 export async function getTidalPlaylistTracks(playlistId: string): Promise<NormalizedTrack[]> {
   const tracks: NormalizedTrack[] = [];
-  let path: string | null = `/playlists/${playlistId}/relationships/items?include=tracks,artists`;
+  // Tidal v2 OpenAPI specifies include=items for playlists items relationship
+  let path: string | null = `/playlists/${playlistId}/relationships/items?include=items`;
 
-  while (path) {
-    const page: JsonApiList<TrackResource> =
-      await tidalFetchRaw<JsonApiList<TrackResource>>(path);
-    const trackResources =
-      (page.included?.filter((i: Record<string, unknown>) => i.type === "tracks") as
-        | TrackResource[]
-        | undefined) || [];
-    const byId = new Map(trackResources.map((t: TrackResource) => [t.id, t]));
+  try {
+    while (path) {
+      const page: JsonApiList<TrackResource> =
+        await tidalFetchRaw<JsonApiList<TrackResource>>(path);
+      const trackResources =
+        (page.included?.filter((i: Record<string, unknown>) => i.type === "tracks") as
+          | TrackResource[]
+          | undefined) || [];
+      const byId = new Map(trackResources.map((t: TrackResource) => [t.id, t]));
 
-    for (const item of page.data || []) {
-      const rel = item as {
-        id: string;
-        type: string;
-        relationships?: {
-          track?: { data?: { id: string } };
-          tracks?: { data?: { id: string } };
+      for (const item of page.data || []) {
+        const rel = item as {
+          id: string;
+          type: string;
+          relationships?: {
+            track?: { data?: { id: string } };
+            tracks?: { data?: { id: string } };
+          };
         };
-      };
-      const trackId =
-        rel.relationships?.track?.data?.id ||
-        rel.relationships?.tracks?.data?.id ||
-        (item.type === "tracks" ? item.id : undefined);
-      const track = (trackId && byId.get(trackId)) || (item.type === "tracks" ? item : undefined);
-      if (!track?.id) continue;
+        const trackId =
+          rel.relationships?.track?.data?.id ||
+          rel.relationships?.tracks?.data?.id ||
+          (item.type === "tracks" ? item.id : undefined);
+        const track = (trackId && byId.get(trackId)) || (item.type === "tracks" ? item : undefined);
+        if (!track?.id) continue;
 
-      const artistIds =
-        track.relationships?.artists?.data?.map((a: { id: string }) => a.id) || [];
-      const artists = artistIds
-        .map((id: string) => includedName(page.included, id))
-        .filter(Boolean) as string[];
-      const attrArtists = track.attributes?.artists
-        ?.map((a: { name?: string }) => a.name)
-        .filter(Boolean) as string[] | undefined;
+        const artistIds =
+          track.relationships?.artists?.data?.map((a: { id: string }) => a.id) || [];
+        const artists = artistIds
+          .map((id: string) => includedName(page.included, id))
+          .filter(Boolean) as string[];
+        const attrArtists = track.attributes?.artists
+          ?.map((a: { name?: string }) => a.name)
+          .filter(Boolean) as string[] | undefined;
 
-      tracks.push({
-        id: track.id,
-        isrc: track.attributes?.isrc,
-        title: track.attributes?.title || "Unknown",
-        artists: artists.length ? artists : attrArtists || [],
-        durationMs: (track.attributes?.duration || 0) * 1000,
-        album: track.attributes?.album?.title,
-      });
+        tracks.push({
+          id: track.id,
+          isrc: track.attributes?.isrc,
+          title: track.attributes?.title || "Unknown",
+          artists: artists.length ? artists : attrArtists || [],
+          durationMs: (track.attributes?.duration || 0) * 1000,
+          album: track.attributes?.album?.title,
+        });
+      }
+      path = page.links?.next || null;
     }
-    path = page.links?.next || null;
+    return tracks;
+  } catch (err) {
+    // If include=items failed, retry without include
+    path = `/playlists/${playlistId}/relationships/items`;
+    tracks.length = 0;
+    while (path) {
+      const page: JsonApiList<TrackResource> =
+        await tidalFetchRaw<JsonApiList<TrackResource>>(path);
+      const trackResources =
+        (page.included?.filter((i: Record<string, unknown>) => i.type === "tracks") as
+          | TrackResource[]
+          | undefined) || [];
+      const byId = new Map(trackResources.map((t: TrackResource) => [t.id, t]));
+
+      for (const item of page.data || []) {
+        const rel = item as {
+          id: string;
+          type: string;
+          relationships?: {
+            track?: { data?: { id: string } };
+            tracks?: { data?: { id: string } };
+          };
+        };
+        const trackId =
+          rel.relationships?.track?.data?.id ||
+          rel.relationships?.tracks?.data?.id ||
+          (item.type === "tracks" ? item.id : undefined);
+        const track = (trackId && byId.get(trackId)) || (item.type === "tracks" ? item : undefined);
+        if (!track?.id) continue;
+
+        const artistIds =
+          track.relationships?.artists?.data?.map((a: { id: string }) => a.id) || [];
+        const artists = artistIds
+          .map((id: string) => includedName(page.included, id))
+          .filter(Boolean) as string[];
+        const attrArtists = track.attributes?.artists
+          ?.map((a: { name?: string }) => a.name)
+          .filter(Boolean) as string[] | undefined;
+
+        tracks.push({
+          id: track.id,
+          isrc: track.attributes?.isrc,
+          title: track.attributes?.title || "Unknown",
+          artists: artists.length ? artists : attrArtists || [],
+          durationMs: (track.attributes?.duration || 0) * 1000,
+          album: track.attributes?.album?.title,
+        });
+      }
+      path = page.links?.next || null;
+    }
+    return tracks;
   }
-  return tracks;
 }
 
 export async function createTidalPlaylist(name: string): Promise<NormalizedPlaylist> {

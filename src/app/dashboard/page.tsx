@@ -7,6 +7,7 @@ import { ProgressBar } from "@/components/ProgressBar";
 import { ServiceBadge } from "@/components/ServiceBadge";
 import { useStatus } from "@/hooks/useStatus";
 import { formatRelativeTime, getPlaylistWebUrl } from "@/lib/format-date";
+import { formatApiError } from "@/lib/format-error";
 
 export default function DashboardPage() {
   const { data, error, refresh } = useStatus();
@@ -215,37 +216,46 @@ export default function DashboardPage() {
                   )}
 
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <Link
                         href={`/pairs/${pair.id}`}
-                        className="truncate text-base font-semibold hover:text-[var(--spotify)] transition"
+                        className="text-base font-semibold text-white hover:text-[var(--spotify)] transition truncate max-w-md"
+                        title={pair.name}
                       >
                         {pair.name}
                       </Link>
-                      <span className="text-xs text-[var(--muted)]">
-                        {pair.songCount} {pair.songCount === 1 ? "Song" : "Songs"}
-                      </span>
-                      <span className="rounded-full bg-black/40 px-2 py-0.5 text-[10px] text-[var(--muted)] uppercase tracking-wider">
-                        {pair.syncMode === "mirror"
-                          ? "Mirror"
-                          : pair.syncMode?.startsWith("one_way")
-                            ? "Einweg"
-                            : "Additive"}
-                      </span>
-                      {isPairActive ? (
-                        <span className="inline-flex items-center gap-1.5 text-xs text-[var(--spotify)] font-medium">
-                          <span className="h-1.5 w-1.5 rounded-full bg-[var(--spotify)] animate-ping" />
-                          Synchronisiert…
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="rounded-full bg-black/40 border border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--muted)] uppercase tracking-wider">
+                          {pair.syncMode === "mirror"
+                            ? "Mirror"
+                            : pair.syncMode?.startsWith("one_way")
+                              ? "Einweg"
+                              : "Additive"}
                         </span>
-                      ) : pair.status === "error" ? (
-                        <span className="text-xs text-[var(--danger)]">Fehler</span>
-                      ) : (
-                        <span className="text-xs text-[var(--muted)]">Bereit</span>
-                      )}
+                        {isPairActive ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--spotify)]/10 border border-[var(--spotify)]/30 px-2 py-0.5 text-xs text-[var(--spotify)] font-medium">
+                            <span className="h-1.5 w-1.5 rounded-full bg-[var(--spotify)] animate-ping" />
+                            Sync…
+                          </span>
+                        ) : pair.status === "error" ? (
+                          <span className="rounded-full bg-[var(--danger)]/15 border border-[var(--danger)]/40 px-2 py-0.5 text-xs text-[var(--danger)] font-medium">
+                            Fehler
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-white/5 border border-white/10 px-2 py-0.5 text-xs text-[var(--muted)]">
+                            Bereit
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Platform links and timestamps */}
-                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
+                    <div className="mt-2 flex flex-wrap items-center gap-2.5 text-xs text-[var(--muted)]">
+                      <span>
+                        {pair.songCount} {pair.songCount === 1 ? "Song" : "Songs"}
+                      </span>
+                      <span>·</span>
                       <div className="flex items-center gap-1.5">
                         <a
                           href={spotifyUrl}
@@ -279,22 +289,22 @@ export default function DashboardPage() {
                     </div>
 
                     {pair.heldRemovals && pair.heldRemovals.length > 0 ? (
-                      <p className="mt-1.5 text-xs text-[var(--accent)] font-medium">
+                      <p className="mt-2 text-xs text-[var(--accent)] font-medium">
                         Notbremse aktiv: {pair.heldRemovals.length} Löschungen gestoppt —{" "}
                         <Link href={`/pairs/${pair.id}`} className="underline">
-                          Überprüfen
+                          In Details freigeben
                         </Link>
                       </p>
                     ) : null}
 
                     {pair.lastError && (!pair.heldRemovals || pair.heldRemovals.length === 0) ? (
-                      <p className="mt-1.5 text-xs text-[var(--danger)] line-clamp-1">
-                        {pair.lastError}
+                      <p className="mt-2 text-xs text-[var(--danger)] line-clamp-1">
+                        {formatApiError(pair.lastError)}
                       </p>
                     ) : null}
 
                     {pair.unmatchedCount > 0 ? (
-                      <p className="mt-1 text-xs text-[var(--accent)]">
+                      <p className="mt-1.5 text-xs text-[var(--accent)]">
                         {pair.unmatchedCount} ohne Treffer —{" "}
                         <Link href={`/pairs/${pair.id}`} className="underline">
                           Details ansehen
@@ -305,18 +315,18 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-2.5 sm:self-center shrink-0">
+                <div className="flex items-center gap-2 sm:self-center shrink-0">
                   <button
                     type="button"
                     onClick={() => syncPair(pair.id)}
                     disabled={isPairActive || isQueued}
-                    className="rounded-xl border border-[var(--border)] px-3.5 py-2 text-xs font-medium hover:border-[var(--spotify)] hover:text-white transition disabled:opacity-40"
+                    className="rounded-xl border border-[var(--border)] px-3.5 py-2 text-xs font-medium text-white hover:border-[var(--spotify)] hover:text-white transition disabled:opacity-40"
                   >
                     {isPairActive ? "Läuft…" : isQueued ? "Eingereiht" : "Jetzt synchronisieren"}
                   </button>
                   <Link
                     href={`/pairs/${pair.id}`}
-                    className="rounded-xl bg-white px-3.5 py-2 text-xs font-semibold text-black hover:bg-neutral-200 transition"
+                    className="rounded-xl border border-white/20 bg-white/10 px-3.5 py-2 text-xs font-semibold text-white hover:bg-white/20 hover:border-white transition"
                   >
                     Details
                   </Link>

@@ -158,7 +158,17 @@ type SpotifyPlaylistPage = {
 
 type SpotifyTracksPage = {
   items: Array<{
-    track: {
+    added_at?: string;
+    track?: {
+      id: string;
+      name: string;
+      duration_ms: number;
+      uri: string;
+      external_ids?: { isrc?: string };
+      artists: Array<{ name: string }>;
+      album?: { name: string };
+    } | null;
+    item?: {
       id: string;
       name: string;
       duration_ms: number;
@@ -209,28 +219,57 @@ export async function getSpotifyPlaylistTracks(
   account: SpotifyAccountSlot = "spotify",
 ): Promise<NormalizedTrack[]> {
   const tracks: NormalizedTrack[] = [];
-  let url: string | null = `/playlists/${playlistId}/tracks?limit=100&fields=items(track(id,name,duration_ms,external_ids,artists(name),uri,album(name))),next`;
-  while (url) {
-    const page: SpotifyTracksPage = await spotifyFetch<SpotifyTracksPage>(
-      url.startsWith("http") ? url.replace(API, "") : url,
-      account,
-    );
-    for (const item of page.items) {
-      const t = item.track;
-      if (!t?.id) continue;
-      tracks.push({
-        id: t.id,
-        isrc: t.external_ids?.isrc,
-        title: t.name,
-        artists: t.artists.map((a: { name: string }) => a.name),
-        durationMs: t.duration_ms,
-        album: t.album?.name,
-        uri: t.uri,
-      });
+  // Use /items without restrictive field projections to avoid 403
+  let url: string | null = `/playlists/${playlistId}/items?limit=100`;
+
+  try {
+    while (url) {
+      const page: SpotifyTracksPage = await spotifyFetch<SpotifyTracksPage>(
+        url.startsWith("http") ? url.replace(API, "") : url,
+        account,
+      );
+      for (const item of page.items || []) {
+        const t = item.track || item.item;
+        if (!t?.id) continue;
+        tracks.push({
+          id: t.id,
+          isrc: t.external_ids?.isrc,
+          title: t.name,
+          artists: t.artists?.map((a: { name: string }) => a.name) || [],
+          durationMs: t.duration_ms,
+          album: t.album?.name,
+          uri: t.uri,
+        });
+      }
+      url = page.next ? page.next.replace(API, "") : null;
     }
-    url = page.next ? page.next.replace(API, "") : null;
+    return tracks;
+  } catch (err) {
+    // If /items failed (e.g. 403 on older app or different permissions), retry with /tracks
+    url = `/playlists/${playlistId}/tracks?limit=100`;
+    tracks.length = 0;
+    while (url) {
+      const page: SpotifyTracksPage = await spotifyFetch<SpotifyTracksPage>(
+        url.startsWith("http") ? url.replace(API, "") : url,
+        account,
+      );
+      for (const item of page.items || []) {
+        const t = item.track || item.item;
+        if (!t?.id) continue;
+        tracks.push({
+          id: t.id,
+          isrc: t.external_ids?.isrc,
+          title: t.name,
+          artists: t.artists?.map((a: { name: string }) => a.name) || [],
+          durationMs: t.duration_ms,
+          album: t.album?.name,
+          uri: t.uri,
+        });
+      }
+      url = page.next ? page.next.replace(API, "") : null;
+    }
+    return tracks;
   }
-  return tracks;
 }
 
 export async function createSpotifyPlaylist(
