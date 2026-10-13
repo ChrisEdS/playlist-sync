@@ -453,7 +453,7 @@ function PairDetailInner() {
             <div className="mt-4.5 text-xs text-[var(--muted)] space-y-1">
               <p>Zuletzt synchronisiert: {formatRelativeTime(pair.lastSyncedAt)}</p>
               {pair.lastError ? (
-                <p className="text-[var(--danger)]">Status: {pair.lastError}</p>
+                <p className="text-[var(--danger)]">Status: {formatApiError(pair.lastError)}</p>
               ) : null}
             </div>
 
@@ -531,7 +531,7 @@ function PairDetailInner() {
                           : "In Arbeit"}
                     </span>
                     {job.error ? (
-                      <p className="text-[var(--danger)] mt-0.5">{job.error}</p>
+                      <p className="text-[var(--danger)] mt-0.5">{formatApiError(job.error)}</p>
                     ) : null}
                   </div>
 
