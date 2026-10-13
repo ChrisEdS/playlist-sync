@@ -243,40 +243,18 @@ function PairDetailInner() {
             </div>
           </div>
 
-          {/* Action buttons */}
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            {/* Export Dropdown */}
-            <div className="flex items-center gap-1.5 bg-black/30 border border-[var(--border)] rounded-2xl p-1">
-              <a
-                href={`/api/pairs/${pair.id}/export?format=m3u8`}
-                download
-                className="px-3 py-1.5 text-xs font-semibold text-white hover:text-[var(--spotify)] transition"
-                title="Playlist als .m3u8 Datei exportieren"
-              >
-                ↓ M3U8
-              </a>
-              <span className="text-[var(--border)]">|</span>
-              <a
-                href={`/api/pairs/${pair.id}/export?format=csv`}
-                download
-                className="px-2.5 py-1.5 text-xs text-[var(--muted)] hover:text-white transition"
-                title="Playlist als CSV-Tabelle exportieren"
-              >
-                CSV
-              </a>
-            </div>
-
             <button
               onClick={runPreview}
               disabled={previewing}
               className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] px-4 py-2.5 text-sm font-semibold hover:border-white transition disabled:opacity-40"
             >
-              {previewing ? "Prüfe Änderungen…" : "Differenz-Vorschau"}
+              {previewing ? "Prüfe…" : "Vorschau"}
             </button>
             <button
               onClick={() => void startSync()}
               disabled={syncing}
-              className="rounded-2xl bg-[var(--spotify)] px-5 py-2.5 text-sm font-semibold text-black hover:brightness-110 transition disabled:opacity-40 shadow-[0_10px_30px_rgba(30,215,96,0.2)]"
+              className="rounded-2xl bg-[var(--spotify)] px-5 py-2.5 text-sm font-semibold text-black hover:brightness-110 transition disabled:opacity-40"
             >
               {syncing ? "Synchronisiere…" : "Jetzt synchronisieren"}
             </button>
@@ -420,56 +398,75 @@ function PairDetailInner() {
           </div>
         ) : null}
 
-        {/* Pair Configuration & Unmatched Tracks Grid */}
-        <div className="mt-6 grid gap-5 md:grid-cols-2">
-          {/* Settings Panel */}
-          <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5.5">
-            <h2 className="font-semibold text-base text-white">Einstellungen</h2>
-
-            <label className="mt-4 flex items-center gap-3 text-sm cursor-pointer">
+        <section className="mt-6 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5 md:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-semibold text-white">Sync-Einstellungen</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                Zuletzt: {formatRelativeTime(pair.lastSyncedAt)}
+                {" · "}
+                {pair.songCount} {pair.songCount === 1 ? "Song" : "Songs"}
+              </p>
+            </div>
+            <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-sm">
               <input
                 type="checkbox"
                 checked={pair.enabled === 1}
                 onChange={(e) => patch({ enabled: e.target.checked })}
                 className="accent-[var(--spotify)]"
               />
-              <span className="text-white">Im automatischen täglichen Cron-Sync berücksichtigen</span>
+              Täglicher Cron
             </label>
-
-            <div className="mt-4.5">
-              <p className="text-xs text-[var(--muted)] uppercase tracking-wider font-medium">Modus</p>
-              <select
-                className="mt-1.5 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm text-white outline-none focus:border-[var(--spotify)]"
-                value={pair.syncMode || "additive"}
-                onChange={(e) => patch({ syncMode: e.target.value })}
-              >
-                <option value="additive">Additive (Nur hinzufügen, keine Löschungen)</option>
-                <option value="mirror">Mirror (Zwei-Wege Spiegelung mit Löschungen)</option>
-                <option value="one_way_a_to_b">Einweg (Seite A bestimmt Seite B 1:1)</option>
-                <option value="one_way_b_to_a">Einweg (Seite B bestimmt Seite A 1:1)</option>
-              </select>
-            </div>
-
-            <div className="mt-4.5 text-xs text-[var(--muted)] space-y-1">
-              <p>Zuletzt synchronisiert: {formatRelativeTime(pair.lastSyncedAt)}</p>
-              {pair.lastError ? (
-                <p className="text-[var(--danger)]">Status: {formatApiError(pair.lastError)}</p>
-              ) : null}
-            </div>
-
-            <div className="mt-6 pt-4 border-t border-[var(--border)]">
-              <button
-                type="button"
-                onClick={removePair}
-                className="text-xs text-[var(--danger)] hover:underline"
-              >
-                Playlist-Paar entfernen (Dateien auf Spotify/Tidal bleiben erhalten)
-              </button>
-            </div>
           </div>
 
-          {/* Unmatched Tracks Panel */}
-          <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5.5">
+          {pair.lastError ? (
+            <p className="mt-3 rounded-xl bg-[var(--danger)]/10 px-3 py-2 text-sm text-[var(--danger)]">
+              {formatApiError(pair.lastError)}
+            </p>
+          ) : null}
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {(
+              [
+                ["additive", "Additive", "Nur fehlende Songs ergänzen."],
+                ["mirror", "Mirror", "Änderungen inkl. Löschungen in beide Richtungen."],
+                ["one_way_a_to_b", "A → B", "Nur die Quelle schreibt das Ziel."],
+                ["one_way_b_to_a", "B → A", "Nur das Ziel schreibt die Quelle."],
+              ] as const
+            ).map(([value, label, hint]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => patch({ syncMode: value })}
+                className={`rounded-2xl border p-3 text-left text-sm ${
+                  (pair.syncMode || "additive") === value
+                    ? "border-[var(--spotify)] bg-black/30"
+                    : "border-[var(--border)] hover:border-white/40"
+                }`}
+              >
+                <strong>{label}</strong>
+                <p className="mt-1 text-xs text-[var(--muted)]">{hint}</p>
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
+            <div className="flex gap-2 text-xs">
+              <a href={`/api/pairs/${pair.id}/export?format=m3u8`} className="rounded-lg border border-[var(--border)] px-3 py-1.5 hover:border-white">
+                M3U8
+              </a>
+              <a href={`/api/pairs/${pair.id}/export?format=csv`} className="rounded-lg border border-[var(--border)] px-3 py-1.5 hover:border-white">
+                CSV
+              </a>
+            </div>
+            <button type="button" onClick={removePair} className="text-xs text-[var(--danger)] hover:underline">
+              Paar entfernen
+            </button>
+          </div>
+        </section>
+
+        <div className="mt-6">
+          <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5 md:p-6">
             <div className="flex items-center justify-between">
               <h2 className="font-semibold text-base text-white">
                 Nicht gefunden ({pair.unmatchedCount || pair.unmatchedTracks?.length || 0})
