@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { waitUntil } from "@vercel/functions";
 import { requireAuth, jsonError } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
-import { runSyncJob } from "@/lib/sync/engine";
+import { enqueuePairSync, kickQueue } from "@/lib/sync/queue";
 
 export const maxDuration = 300;
 
@@ -24,21 +24,12 @@ export async function POST(req: Request, { params }: Params) {
     .limit(1);
   if (!pairs[0]) return jsonError("Not found", 404);
 
-  const [job] = await db
-    .insert(schema.syncJobs)
-    .values({
-      pairId: id,
-      type: "sync",
-      status: "queued",
-      message: forceMirror ? "Eingereiht (Mirror erzwungen)…" : "Eingereiht…",
-    })
-    .returning();
-
-  waitUntil(
-    runSyncJob(job.id, { forceMirror }).catch((err) => {
-      console.error("Sync job failed", err);
-    }),
+  const job = await enqueuePairSync(
+    id,
+    forceMirror ? "Eingereiht (Mirror erzwungen)…" : "Eingereiht…",
+    { forceMirror },
   );
+  waitUntil(kickQueue());
 
   return NextResponse.json({ job });
 }

@@ -462,6 +462,35 @@ export async function searchSpotifyTrack(
   return null;
 }
 
+export async function searchSpotifyTracksByQuery(
+  query: string,
+  account: SpotifyAccountSlot = "spotify",
+): Promise<NormalizedTrack[]> {
+  const data = await spotifyFetch<{
+    tracks: {
+      items: Array<{
+        id: string;
+        name: string;
+        duration_ms: number;
+        uri: string;
+        external_ids?: { isrc?: string };
+        artists: Array<{ name: string }>;
+        album?: { name: string };
+      }>;
+    };
+  }>(`/search?type=track&limit=8&q=${encodeURIComponent(query)}`, account);
+
+  return (data.tracks?.items || []).map((item) => ({
+    id: item.id,
+    isrc: item.external_ids?.isrc,
+    title: item.name,
+    artists: item.artists.map((a) => a.name),
+    durationMs: item.duration_ms,
+    album: item.album?.name,
+    uri: item.uri,
+  }));
+}
+
 export function newOAuthState(): string {
   return randomToken(16);
 }

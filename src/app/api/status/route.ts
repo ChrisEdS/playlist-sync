@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { desc } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { requireAuth } from "@/lib/api";
 import { isAppPinDisabled } from "@/lib/auth-mode";
 import { getDb, schema } from "@/lib/db";
@@ -19,8 +19,9 @@ export async function GET() {
       credentialsStatus(),
     ]);
 
+    const visibleJobs = jobs.filter((job) => job.type !== "gap");
     const activeJob =
-      jobs.find((j) => j.status === "running" || j.status === "queued") || null;
+      visibleJobs.find((j) => j.status === "running" || j.status === "queued") || null;
     const activePair = activeJob?.pairId
       ? pairs.find((p) => p.id === activeJob.pairId) || null
       : pairs.find((p) => p.status === "syncing" || p.status === "matching") || null;
@@ -50,13 +51,39 @@ export async function GET() {
       ready: spotify1Ready && (tidalReady || spotify2Connected),
     };
 
+    const openJobs = await db
+      .select({
+        id: schema.syncJobs.id,
+        status: schema.syncJobs.status,
+        type: schema.syncJobs.type,
+        startedAt: schema.syncJobs.startedAt,
+      })
+      .from(schema.syncJobs)
+      .where(inArray(schema.syncJobs.status, ["queued", "running"]))
+      .limit(100);
+    const now = Date.now();
+    for (const job of openJobs) {
+      const started = job.startedAt ? new Date(job.startedAt).getTime() : 0;
+      if (job.type === "gap" && started && now - started > 20_000) {
+        await db.delete(schema.syncJobs).where(eq(schema.syncJobs.id, job.id));
+      }
+    }
+    const liveJobs = openJobs.filter((job) => {
+      if (job.type !== "gap") return true;
+      const started = job.startedAt ? new Date(job.startedAt).getTime() : 0;
+      return Boolean(started) && now - started <= 20_000;
+    });
+    const queuedCount = liveJobs.filter((job) => job.status === "queued").length;
+    const runningCount = liveJobs.filter((job) => job.status === "running").length;
+
     return NextResponse.json({
       connections,
       credentials,
       pairs,
-      jobs,
+      jobs: visibleJobs,
       activeJob,
       activePair,
+      queue: { queued: queuedCount, running: runningCount },
       setup,
       summary: {
         totalPlaylists,

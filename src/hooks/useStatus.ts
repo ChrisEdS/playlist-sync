@@ -57,6 +57,7 @@ export type StatusPayload = {
     matched: number;
     unmatched: number;
   }>;
+  queue?: { queued: number; running: number };
   activeJob: StatusPayload["jobs"][number] | null;
   activePair: StatusPayload["pairs"][number] | null;
   summary: {

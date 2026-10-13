@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
 import { waitUntil } from "@vercel/functions";
 import { env } from "@/lib/env";
-import { getDb, schema } from "@/lib/db";
-import { runSyncJob } from "@/lib/sync/engine";
+import { enqueueEnabledPairs, kickQueue } from "@/lib/sync/queue";
 
 export const maxDuration = 300;
 
@@ -19,31 +17,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const db = await getDb();
-  const pairs = await db
-    .select()
-    .from(schema.playlistPairs)
-    .where(and(eq(schema.playlistPairs.enabled, 1)));
+  const jobs = await enqueueEnabledPairs("Cron sync…");
+  waitUntil(kickQueue());
 
-  const jobs = [];
-  for (const pair of pairs) {
-    if (pair.status === "syncing") continue;
-    const [job] = await db
-      .insert(schema.syncJobs)
-      .values({
-        pairId: pair.id,
-        type: "sync",
-        status: "queued",
-        message: "Cron sync…",
-      })
-      .returning();
-    jobs.push(job);
-    waitUntil(
-      runSyncJob(job.id).catch((err) => {
-        console.error("Cron sync failed", pair.id, err);
-      }),
-    );
-  }
-
-  return NextResponse.json({ ok: true, queued: jobs.length, jobIds: jobs.map((j) => j.id) });
+  return NextResponse.json({ ok: true, queued: jobs.length, jobIds: jobs.map((job) => job.id) });
 }

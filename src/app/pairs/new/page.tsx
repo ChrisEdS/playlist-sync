@@ -29,9 +29,7 @@ export default function NewPairPage() {
   const [selected, setSelected] = useState("");
   const [targetId, setTargetId] = useState("");
   const [createTarget, setCreateTarget] = useState(true);
-  const [syncMode, setSyncMode] = useState<
-    "additive" | "mirror" | "one_way_a_to_b" | "one_way_b_to_a"
-  >("additive");
+  const [syncMode, setSyncMode] = useState<"additive" | "mirror">("additive");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [batching, setBatching] = useState(false);
@@ -314,7 +312,7 @@ export default function NewPairPage() {
                     : "text-[var(--muted)] hover:text-white"
                 }`}
               >
-                Spotify ⇄ Tidal
+                Spotify → Tidal
               </button>
 
               <button
@@ -332,7 +330,7 @@ export default function NewPairPage() {
                 }`}
                 title={!hasSpotify2 ? "Zweitaccount in Einstellungen verbinden" : ""}
               >
-                <span>Spotify 1 ⇄ Spotify 2</span>
+                <span>Spotify 1 → Spotify 2</span>
                 {!hasSpotify2 ? (
                   <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-[var(--muted)]">
                     +Account nötig
@@ -341,64 +339,11 @@ export default function NewPairPage() {
               </button>
             </div>
 
-            {/* Source selector */}
-            <div className="mt-5 flex flex-wrap gap-3">
-              {pairType === "spotify_tidal" ? (
-                <>
-                  <button
-                    key="spotify"
-                    onClick={() => setSource("spotify")}
-                    className={`flex items-center gap-2 rounded-2xl border px-4 py-2.5 transition ${
-                      source === "spotify"
-                        ? "border-[var(--spotify)] bg-[var(--bg-panel)] shadow-sm"
-                        : "border-[var(--border)] hover:border-white/40"
-                    }`}
-                  >
-                    <ServiceBadge service="spotify" />
-                    <span className="text-sm font-medium">als Quelle</span>
-                  </button>
-                  <button
-                    key="tidal"
-                    onClick={() => setSource("tidal")}
-                    className={`flex items-center gap-2 rounded-2xl border px-4 py-2.5 transition ${
-                      source === "tidal"
-                        ? "border-[var(--tidal)] bg-[var(--bg-panel)] shadow-sm"
-                        : "border-[var(--border)] hover:border-white/40"
-                    }`}
-                  >
-                    <ServiceBadge service="tidal" />
-                    <span className="text-sm font-medium">als Quelle</span>
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    key="spotify"
-                    onClick={() => setSource("spotify")}
-                    className={`flex items-center gap-2 rounded-2xl border px-4 py-2.5 transition ${
-                      source === "spotify"
-                        ? "border-[var(--spotify)] bg-[var(--bg-panel)] shadow-sm"
-                        : "border-[var(--border)] hover:border-white/40"
-                    }`}
-                  >
-                    <ServiceBadge service="spotify" label="Spotify (Account 1)" />
-                    <span className="text-sm font-medium">als Quelle</span>
-                  </button>
-                  <button
-                    key="spotify_2"
-                    onClick={() => setSource("spotify_2")}
-                    className={`flex items-center gap-2 rounded-2xl border px-4 py-2.5 transition ${
-                      source === "spotify_2"
-                        ? "border-[var(--spotify)] bg-[var(--bg-panel)] shadow-sm"
-                        : "border-[var(--border)] hover:border-white/40"
-                    }`}
-                  >
-                    <ServiceBadge service="spotify_2" label="Spotify (Account 2)" />
-                    <span className="text-sm font-medium">als Quelle</span>
-                  </button>
-                </>
-              )}
-            </div>
+            <p className="mt-5 text-sm text-[var(--muted)]">
+              {pairType === "spotify_spotify"
+                ? "Quelle ist Spotify (Account 1). Spotify (Account 2) wird befüllt und darf leer sein."
+                : "Quelle ist Spotify. Tidal wird befüllt und darf leer sein."}
+            </p>
 
             {successNotice ? (
               <div className="mt-6 rounded-2xl border border-[var(--progress)]/40 bg-[var(--progress)]/10 p-4 text-sm text-[var(--progress)] font-medium">
@@ -735,9 +680,11 @@ export default function NewPairPage() {
 
                   {/* Sync Arrow Indicator */}
                   <div className="flex flex-col items-center justify-center shrink-0 text-center">
-                    <span className="text-xl font-bold text-[var(--spotify)]">⇄</span>
+                    <span className="text-xl font-bold text-[var(--spotify)]">
+                      {syncMode === "mirror" ? "⇄" : "→"}
+                    </span>
                     <span className="text-[10px] text-[var(--muted)] uppercase tracking-wider">
-                      {syncModeLabel(syncMode)}
+                      {syncMode === "mirror" ? "Mirror" : "Quelle → Ziel"}
                     </span>
                   </div>
 
@@ -888,22 +835,21 @@ export default function NewPairPage() {
                 <p className="mt-1 text-xs text-[var(--muted)]">
                   Gilt für dieses Paar. Später auf der Detailseite änderbar.
                 </p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   <button
                     type="button"
                     onClick={() => setSyncMode("additive")}
                     className={`rounded-2xl border p-3.5 text-left text-sm transition ${
-                      syncMode === "additive"
+                      syncMode !== "mirror"
                         ? "border-[var(--spotify)] bg-black/30 shadow-sm"
                         : "border-[var(--border)] hover:border-white/30"
                     }`}
                   >
-                    <strong className="text-white block">Additive Sync</strong>
+                    <strong className="text-white block">Quelle → Ziel</strong>
                     <p className="mt-1 text-xs text-[var(--muted)]">
-                      Nur hinzufügen, nie löschen. Der sicherste Standard für beide Seiten.
+                      Spotify bleibt unverändert. Fehlende Titel werden ins Ziel kopiert, auch in eine neue leere Playlist.
                     </p>
                   </button>
-
                   <button
                     type="button"
                     onClick={() => setSyncMode("mirror")}
@@ -913,38 +859,9 @@ export default function NewPairPage() {
                         : "border-[var(--border)] hover:border-white/30"
                     }`}
                   >
-                    <strong className="text-white block">Zwei-Wege Mirror</strong>
+                    <strong className="text-white block">Mirror</strong>
                     <p className="mt-1 text-xs text-[var(--muted)]">
-                      Spiegelt Hinzufügungen & Löschungen in beide Richtungen (mit Notbremse).
-                    </p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setSyncMode("one_way_a_to_b")}
-                    className={`rounded-2xl border p-3.5 text-left text-sm transition ${
-                      syncMode === "one_way_a_to_b"
-                        ? "border-[var(--accent)] bg-black/30 shadow-sm"
-                        : "border-[var(--border)] hover:border-white/30"
-                    }`}
-                  >
-                    <strong className="text-white block">Einweg (Master → Replica)</strong>
-                    <p className="mt-1 text-xs text-[var(--muted)]">
-                      Quelle bestimmt den Inhalt exakt 1:1. Quelle bleibt unberührt.
-                    </p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSyncMode("one_way_b_to_a")}
-                    className={`rounded-2xl border p-3.5 text-left text-sm transition ${
-                      syncMode === "one_way_b_to_a"
-                        ? "border-[var(--accent)] bg-black/30 shadow-sm"
-                        : "border-[var(--border)] hover:border-white/30"
-                    }`}
-                  >
-                    <strong className="text-white block">Einweg (Ziel → Quelle)</strong>
-                    <p className="mt-1 text-xs text-[var(--muted)]">
-                      Das Ziel schreibt zurück. Die Zielseite bleibt unberührt.
+                      Beide Seiten gleichen sich an, inklusive Löschungen. Massenlöschungen stoppt die Notbremse.
                     </p>
                   </button>
                 </div>
@@ -980,10 +897,4 @@ function sourceLabel(s: "spotify" | "spotify_2" | "tidal"): string {
   if (s === "spotify") return "Spotify (Account 1)";
   if (s === "spotify_2") return "Spotify (Account 2)";
   return "Tidal";
-}
-
-function syncModeLabel(m: string): string {
-  if (m === "mirror") return "Mirror Sync";
-  if (m === "one_way_a_to_b" || m === "one_way_b_to_a") return "Einweg Sync";
-  return "Additive Sync";
 }

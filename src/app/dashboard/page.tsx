@@ -15,10 +15,8 @@ export default function DashboardPage() {
   const pairs = data?.pairs || [];
   const canPair = Boolean(setup?.ready);
   const showOnboarding = Boolean(setup && !setup.hasPairs);
-  const [syncingAll, setSyncingAll] = useState(false);
+  const [queueing, setQueueing] = useState(false);
   const [syncingMap, setSyncingMap] = useState<Record<string, boolean>>({});
-  const [modeFilter, setModeFilter] = useState("all");
-  const [groupBy, setGroupBy] = useState<"mode" | "destination" | "status">("mode");
   const [sortBy, setSortBy] = useState<"name" | "songs" | "recent">("name");
   const [view, setView] = useState<"list" | "tiles">("tiles");
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
@@ -28,34 +26,19 @@ export default function DashboardPage() {
     [pairs],
   );
   const groups = useMemo(() => {
-    const filtered =
-      modeFilter === "all"
-        ? pairs
-        : modeFilter === "error"
-          ? pairs.filter((p) => p.status === "error")
-          : pairs.filter((p) => (p.syncMode || "additive") === modeFilter);
     const buckets = new Map<string, typeof pairs>();
-    for (const pair of filtered) {
-      const key = groupKey(pair, groupBy);
+    for (const pair of pairs) {
+      const key = stateKey(pair);
       const list = buckets.get(key) || [];
       list.push(pair);
       buckets.set(key, list);
     }
-    const order =
-      groupBy === "destination"
-        ? ["tidal", "spotify_2"]
-        : groupBy === "status"
-          ? ["error", "syncing", "idle"]
-          : MODE_ORDER;
-    return order
-      .filter((key) => buckets.has(key))
-      .concat([...buckets.keys()].filter((key) => !order.includes(key)))
-      .map((key) => ({
-        key,
-        label: groupLabel(groupBy, key),
-        pairs: [...(buckets.get(key) || [])].sort((a, b) => comparePairs(a, b, sortBy)),
-      }));
-  }, [pairs, modeFilter, groupBy, sortBy]);
+    return STATE_ORDER.filter((key) => buckets.has(key)).map((key) => ({
+      key,
+      label: stateLabel(key),
+      pairs: [...(buckets.get(key) || [])].sort((a, b) => comparePairs(a, b, sortBy)),
+    }));
+  }, [pairs, sortBy]);
 
   async function syncPair(id: string) {
     setSyncingMap((prev) => ({ ...prev, [id]: true }));
@@ -69,14 +52,14 @@ export default function DashboardPage() {
     }
   }
 
-  async function syncAll() {
-    if (syncingAll) return;
-    setSyncingAll(true);
+  async function queueAll() {
+    if (queueing) return;
+    setQueueing(true);
     try {
       await fetch("/api/pairs/sync-all", { method: "POST" });
       refresh();
     } finally {
-      setTimeout(() => setSyncingAll(false), 2000);
+      setTimeout(() => setQueueing(false), 2000);
     }
   }
 
@@ -94,7 +77,7 @@ export default function DashboardPage() {
               {data ? ` (${pairs.length})` : ""}
             </h1>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Spotify ↔ Tidal — Voll-Sync mit automatischer Differenz-Angleichung
+              Spotify bleibt die Quelle. Tidal und Spotify 2 werden befüllt.
             </p>
           </div>
 
@@ -102,12 +85,19 @@ export default function DashboardPage() {
             {pairs.length > 0 ? (
               <button
                 type="button"
-                onClick={syncAll}
-                disabled={syncingAll || Boolean(data?.activeJob)}
+                onClick={queueAll}
+                disabled={queueing || (data?.queue?.running || 0) > 0}
                 className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] px-4 py-3 text-sm font-semibold hover:border-white transition disabled:opacity-40"
               >
-                <span className="text-[var(--spotify)]">⇄</span>
-                <span>{syncingAll ? "Reiht ein…" : "Alle synchronisieren"}</span>
+                <span>
+                  {queueing
+                    ? "Reiht ein…"
+                    : (data?.queue?.running || 0) > 0
+                      ? "Warteschlange läuft"
+                      : (data?.queue?.queued || 0) > 0
+                        ? `${data?.queue?.queued} fortsetzen`
+                        : "Nacheinander synchronisieren"}
+                </span>
               </button>
             ) : null}
 
@@ -213,48 +203,14 @@ export default function DashboardPage() {
 
         {rateLimited > 3 ? (
           <p className="mt-6 rounded-2xl border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-4 py-3 text-sm text-[var(--danger)]">
-            Tidal/Spotify hat das API-Limit erreicht ({rateLimited} Playlists). Ein paar Minuten
-            warten, dann einzelne Paare synchronisieren — nicht alle auf einmal.
+            Tidal/Spotify hat das API-Limit erreicht ({rateLimited} Playlists). Die Warteschlange
+            lässt zwischen den Paaren eine Pause — einzelne Paare erst nach ein paar Minuten starten.
           </p>
         ) : null}
 
         {pairs.length > 0 ? (
           <div className="mt-5 flex flex-col gap-3">
-            <div className="flex flex-wrap gap-2">
-              {[
-                ["all", `Alle (${pairs.length})`],
-                ["additive", "Additive"],
-                ["mirror", "Mirror"],
-                ["one_way_a_to_b", "Einweg A→B"],
-                ["error", "Fehler"],
-              ].map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setModeFilter(id)}
-                  className={`rounded-full border px-3 py-1 text-xs ${
-                    modeFilter === id
-                      ? "border-white bg-white text-black"
-                      : "border-[var(--border)] text-[var(--muted)] hover:text-white"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <label className="text-[var(--muted)]">
-                Gruppieren
-                <select
-                  value={groupBy}
-                  onChange={(e) => setGroupBy(e.target.value as typeof groupBy)}
-                  className="ml-2 rounded-xl border border-[var(--border)] bg-[var(--bg-panel)] px-2 py-1.5 text-white"
-                >
-                  <option value="destination">Ziel</option>
-                  <option value="mode">Sync-Modus</option>
-                  <option value="status">Status</option>
-                </select>
-              </label>
               <label className="text-[var(--muted)]">
                 Sortieren
                 <select
@@ -289,7 +245,7 @@ export default function DashboardPage() {
 
         <div className="mt-6 space-y-3">
           {groups.map((group) => {
-            const storageKey = `${groupBy}:${group.key}`;
+            const storageKey = group.key;
             const open = openGroups[storageKey] ?? group.pairs.length <= 8;
             return (
             <section key={group.key} className="rounded-2xl border border-[var(--border)] bg-black/20">
@@ -333,7 +289,7 @@ export default function DashboardPage() {
             <div className="rounded-3xl border border-dashed border-[var(--border)] p-12 text-center text-[var(--muted)]">
               <p className="text-base font-medium text-white">Noch keine Playlist-Paare angelegt.</p>
               <p className="mt-1 text-sm">
-                Wähle eine Playlist von Spotify oder Tidal, um den Voll-Sync zu starten.
+                Wähle eine Spotify-Playlist als Quelle. Das Ziel auf Tidal darf leer sein.
               </p>
               <Link
                 href="/pairs/new"
@@ -382,40 +338,28 @@ function OnboardingStep({
   );
 }
 
-const MODE_ORDER = ["additive", "mirror", "one_way_a_to_b", "one_way_b_to_a"];
+const STATE_ORDER = ["limit", "never", "missing", "error", "ready"];
 
-function modeLabel(mode: string) {
-  if (mode === "mirror") return "Mirror";
-  if (mode === "one_way_a_to_b") return "Einweg A → B";
-  if (mode === "one_way_b_to_a") return "Einweg B → A";
-  return "Additive";
+function stateKey(pair: {
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  unmatchedCount: number;
+  status: string;
+}) {
+  const err = (pair.lastError || "").toLowerCase();
+  if (err.includes("429") || err.includes("api-limit") || err.includes("rate limit")) return "limit";
+  if (!pair.lastSyncedAt) return "never";
+  if ((pair.unmatchedCount || 0) > 0) return "missing";
+  if (pair.status === "error" || pair.lastError) return "error";
+  return "ready";
 }
 
-function destinationKey(pair: { pairType?: string }) {
-  return pair.pairType === "spotify_spotify" ? "spotify_2" : "tidal";
-}
-
-function groupKey(
-  pair: { pairType?: string; syncMode?: string; status: string },
-  groupBy: "destination" | "mode" | "status",
-) {
-  if (groupBy === "destination") return destinationKey(pair);
-  if (groupBy === "status") {
-    if (pair.status === "syncing" || pair.status === "matching") return "syncing";
-    if (pair.status === "error") return "error";
-    return "idle";
-  }
-  return pair.syncMode || "additive";
-}
-
-function groupLabel(groupBy: "destination" | "mode" | "status", key: string) {
-  if (groupBy === "destination") return key === "spotify_2" ? "Ziel: Spotify 2" : "Ziel: Tidal";
-  if (groupBy === "status") {
-    if (key === "error") return "Fehler";
-    if (key === "syncing") return "Läuft";
-    return "Bereit";
-  }
-  return modeLabel(key);
+function stateLabel(key: string) {
+  if (key === "limit") return "API-Limit";
+  if (key === "never") return "Noch nie synchronisiert";
+  if (key === "missing") return "Fehlende Songs";
+  if (key === "error") return "Fehler";
+  return "Bereit";
 }
 
 function comparePairs(

@@ -48,7 +48,7 @@ export function formatApiError(input: unknown, fallback = "Etwas ist schiefgelau
     return "Tidal-API-Format wurde aktualisiert — bitte jetzt synchronisieren.";
   }
   if (lower.includes("sicherheitsabbruch") || lower.includes("leere trackliste")) {
-    return "Sicherheits-Notbremse: Leere Playlist erkannt — Sync zum Schutz vor Datenverlust gestoppt.";
+    return "Sync gestoppt, weil eine Seite leer zurückkam. Eine neue leere Ziel-Playlist wird beim nächsten Lauf normal befüllt.";
   }
   if (lower.includes("notbremse") || lower.includes("zurückgehalten")) {
     return "Lösch-Notbremse: Massenlöschung gestoppt — bitte in Details manuell freigeben.";

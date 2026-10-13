@@ -255,15 +255,23 @@ async function loadReconcileState(
     .orderBy(desc(schema.snapshots.createdAt))
     .limit(1);
   const snapshot = new Set(snapRows[0]?.trackKeys || []);
+  const syncMode = pair.syncMode || "additive";
 
-  // SAFETY RAIL 1: Empty-Snapshot / Read-Collapse Guard (SongMirror)
-  // If either side returns 0 tracks while the other side or previous snapshot had > 3 tracks, fail closed!
-  if (sideATracks.length === 0 && (sideBTracks.length > 3 || snapshot.size > 3)) {
+  // SAFETY RAIL 1: Empty-read guard.
+  // A brand-new destination playlist is empty on purpose — that is the first copy.
+  // Abort only when a side that already synced comes back empty (API glitch would
+  // otherwise wipe the other side), or when this mode would delete a populated
+  // side because its master read failed before any snapshot exists.
+  const previouslySynced = snapshot.size > 3;
+  if (sideATracks.length === 0 && (previouslySynced || (sideBTracks.length > 3 && syncMode === "one_way_a_to_b"))) {
     throw new Error(
       "Sicherheitsabbruch: Leere Trackliste auf Seite A (Spotify) erhalten. Möglicher API-Glitch. Sync zum Schutz gestoppt.",
     );
   }
-  if (sideBTracks.length === 0 && (sideATracks.length > 3 || snapshot.size > 3)) {
+  if (
+    sideBTracks.length === 0 &&
+    (previouslySynced || (sideATracks.length > 3 && syncMode === "one_way_b_to_a"))
+  ) {
     throw new Error(
       `Sicherheitsabbruch: Leere Trackliste auf ${sideBName} erhalten. Möglicher API-Glitch. Sync zum Schutz gestoppt.`,
     );
@@ -292,26 +300,18 @@ async function loadReconcileState(
     for (const k of sideBKeys) desired.add(k);
   }
 
-  const syncMode = pair.syncMode || "additive";
-
   let addToSideA: string[] = [];
   let addToSideB: string[] = [];
   let removeFromSideA: string[] = [];
   let removeFromSideB: string[] = [];
 
-  if (syncMode === "additive") {
-    // Additive: Union of both sides. Missing tracks added to both sides. Never delete anything.
-    const union = new Set([...sideAKeys, ...sideBKeys]);
-    addToSideA = [...union].filter((k) => !sideAKeys.has(k));
-    addToSideB = [...union].filter((k) => !sideBKeys.has(k));
-    removeFromSideA = [];
-    removeFromSideB = [];
-  } else if (syncMode === "one_way_a_to_b") {
-    // Master-Replica: Side A (Spotify) is master. Side B follows 1:1. Side A never modified.
+  if (syncMode === "additive" || syncMode === "one_way_a_to_b") {
+    // Quelle → Ziel: Spotify is only read. Missing tracks are added to the destination.
+    // A new empty destination is the normal first copy. Nothing is deleted here.
     addToSideA = [];
     removeFromSideA = [];
     addToSideB = [...sideAKeys].filter((k) => !sideBKeys.has(k));
-    removeFromSideB = [...sideBKeys].filter((k) => !sideAKeys.has(k));
+    removeFromSideB = [];
   } else if (syncMode === "one_way_b_to_a") {
     // Master-Replica: Side B is master. Side A follows 1:1. Side B never modified.
     addToSideB = [];
@@ -359,13 +359,11 @@ async function loadReconcileState(
     sideAMap,
     sideBMap,
     desired:
-      syncMode === "additive"
-        ? new Set([...sideAKeys, ...sideBKeys])
-        : syncMode === "one_way_a_to_b"
-          ? sideAKeys
-          : syncMode === "one_way_b_to_a"
-            ? sideBKeys
-            : desired,
+      syncMode === "additive" || syncMode === "one_way_a_to_b"
+        ? sideAKeys
+        : syncMode === "one_way_b_to_a"
+          ? sideBKeys
+          : desired,
     addToSideA,
     addToSideB,
     removeFromSideA,

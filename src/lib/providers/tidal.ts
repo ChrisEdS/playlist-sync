@@ -488,3 +488,24 @@ export async function searchTidalTrack(track: NormalizedTrack): Promise<Normaliz
 
   return null;
 }
+
+export async function searchTidalTracksByQuery(query: string): Promise<NormalizedTrack[]> {
+  const data = await tidalFetchRaw<{
+    data?: TrackResource[];
+    included?: Array<Record<string, unknown>>;
+  }>(`/searchResults/${encodeURIComponent(query)}/relationships/tracks?include=tracks,artists`);
+
+  const tracks =
+    (data.included?.filter((i) => i.type === "tracks") as TrackResource[] | undefined) ||
+    data.data ||
+    [];
+
+  return tracks.slice(0, 8).map((t) => ({
+    id: t.id,
+    isrc: t.attributes?.isrc,
+    title: t.attributes?.title || query,
+    artists: (t.attributes?.artists?.map((a) => a.name).filter(Boolean) as string[]) || [],
+    durationMs: (t.attributes?.duration || 0) * 1000,
+    album: t.attributes?.album?.title,
+  }));
+}

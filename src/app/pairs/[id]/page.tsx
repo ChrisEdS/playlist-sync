@@ -71,6 +71,12 @@ function PairDetailInner() {
   const [confirmMirror, setConfirmMirror] = useState(false);
   const [showAllAdds, setShowAllAdds] = useState(false);
   const [showAllRemoves, setShowAllRemoves] = useState(false);
+  const [rematchIndex, setRematchIndex] = useState<number | null>(null);
+  const [rematchQuery, setRematchQuery] = useState("");
+  const [rematchHits, setRematchHits] = useState<
+    Array<{ id: string; title: string; artists: string[]; album: string | null }>
+  >([]);
+  const [rematchBusy, setRematchBusy] = useState(false);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/pairs/${id}`);
@@ -151,6 +157,43 @@ function PairDetailInner() {
     });
     const json = await res.json();
     if (res.ok) setPair(json.pair);
+  }
+
+  async function searchRematch(title: string, artists: string[]) {
+    setRematchBusy(true);
+    setError(null);
+    try {
+      const q = rematchQuery.trim() || `${title} ${artists[0] || ""}`.trim();
+      const res = await fetch(`/api/pairs/${id}/rematch?q=${encodeURIComponent(q)}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(formatApiError(json.error || "Suche fehlgeschlagen"));
+      setRematchHits(json.hits || []);
+    } catch (e) {
+      setError(formatApiError(e, "Suche fehlgeschlagen"));
+    } finally {
+      setRematchBusy(false);
+    }
+  }
+
+  async function saveRematch(title: string, artists: string[], trackId: string) {
+    setRematchBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/pairs/${id}/rematch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, artists, trackId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(formatApiError(json.error || "Zuordnung fehlgeschlagen"));
+      if (json.pair) setPair(json.pair);
+      setRematchIndex(null);
+      setRematchHits([]);
+    } catch (e) {
+      setError(formatApiError(e, "Zuordnung fehlgeschlagen"));
+    } finally {
+      setRematchBusy(false);
+    }
   }
 
   async function removePair() {
@@ -241,11 +284,7 @@ function PairDetailInner() {
               </a>
 
               <span className="rounded-full bg-black/40 px-2.5 py-1 text-xs text-[var(--muted)] border border-[var(--border)] uppercase tracking-wider text-[10px]">
-                {pair.syncMode === "mirror"
-                  ? "Mirror-Sync"
-                  : pair.syncMode.startsWith("one_way")
-                    ? "Einweg-Sync"
-                    : "Additive-Sync"}
+                {modeName(pair.syncMode)}
               </span>
 
               <span className="text-xs text-[var(--muted)]">
@@ -323,23 +362,19 @@ function PairDetailInner() {
         {/* Dry-Run / Preview Card */}
         {plan ? (
           <div className="mt-6 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-base text-white">
-                Erkannte Differenzen ({plan.syncMode})
-              </h2>
-              <span className="text-xs text-[var(--muted)]">
-                {plan.addToSpotify + plan.addToTidal + plan.removeFromSpotify + plan.removeFromTidal === 0
-                  ? "Beide Seiten identisch"
-                  : "Änderungen anstehend"}
-              </span>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-semibold text-base text-white">Vorschau</h2>
+              <span className="text-xs text-[var(--muted)]">{modeName(plan.syncMode)}</span>
             </div>
-
-            <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-              <Stat label="Zu Seite A hinzufügen" value={plan.addToSpotify} />
-              <Stat label="Zu Seite B hinzufügen" value={plan.addToTidal} />
-              <Stat label="Von Seite A entfernen" value={plan.removeFromSpotify} danger />
-              <Stat label="Von Seite B entfernen" value={plan.removeFromTidal} danger />
-            </div>
+            <p className="mt-3 text-sm text-white">
+              {plan.addToTidal > 0
+                ? `${plan.addToTidal} Titel nach ${isSpotifySpotify ? "Spotify 2" : "Tidal"}`
+                : "Nichts zu kopieren"}
+              {plan.addToSpotify > 0 ? ` · ${plan.addToSpotify} zurück zur Quelle` : ""}
+              {plan.removeFromSpotify + plan.removeFromTidal > 0
+                ? ` · ${plan.removeFromSpotify + plan.removeFromTidal} Löschungen`
+                : ""}
+            </p>
 
             {/* List of additions */}
             {plan.sampleAdds.length ? (
@@ -436,29 +471,35 @@ function PairDetailInner() {
             </p>
           ) : null}
 
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {(
-              [
-                ["additive", "Additive", "Nur fehlende Songs ergänzen."],
-                ["mirror", "Mirror", "Änderungen inkl. Löschungen in beide Richtungen."],
-                ["one_way_a_to_b", "A → B", "Nur die Quelle schreibt das Ziel."],
-                ["one_way_b_to_a", "B → A", "Nur das Ziel schreibt die Quelle."],
-              ] as const
-            ).map(([value, label, hint]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => patch({ syncMode: value })}
-                className={`rounded-2xl border p-3 text-left text-sm ${
-                  (pair.syncMode || "additive") === value
-                    ? "border-[var(--spotify)] bg-black/30"
-                    : "border-[var(--border)] hover:border-white/40"
-                }`}
-              >
-                <strong>{label}</strong>
-                <p className="mt-1 text-xs text-[var(--muted)]">{hint}</p>
-              </button>
-            ))}
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => patch({ syncMode: "additive" })}
+              className={`rounded-2xl border p-3 text-left text-sm ${
+                isSourceToTarget(pair.syncMode)
+                  ? "border-[var(--spotify)] bg-black/30"
+                  : "border-[var(--border)] hover:border-white/40"
+              }`}
+            >
+              <strong>Quelle → Ziel</strong>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Spotify bleibt unverändert. Fehlende Titel werden ins Ziel kopiert, auch wenn es noch leer ist.
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => patch({ syncMode: "mirror" })}
+              className={`rounded-2xl border p-3 text-left text-sm ${
+                pair.syncMode === "mirror"
+                  ? "border-[var(--danger)] bg-black/30"
+                  : "border-[var(--border)] hover:border-white/40"
+              }`}
+            >
+              <strong>Mirror</strong>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Beide Seiten gleichen sich an, inklusive Löschungen. Die Notbremse stoppt Massenlöschungen.
+              </p>
+            </button>
           </div>
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
@@ -486,30 +527,68 @@ function PairDetailInner() {
             </div>
 
             {pair.unmatchedTracks?.length ? (
-              <ul className="mt-4 max-h-72 space-y-2.5 overflow-auto text-xs pr-1">
+              <ul className="mt-4 max-h-96 space-y-2.5 overflow-auto text-xs pr-1">
                 {pair.unmatchedTracks.map((t, i) => {
-                  const targetSearchUrl =
-                    t.side.includes("tidal")
-                      ? `https://listen.tidal.com/search?q=${encodeURIComponent(`${t.title} ${t.artists[0] || ""}`)}`
-                      : `https://open.spotify.com/search/${encodeURIComponent(`${t.title} ${t.artists[0] || ""}`)}`;
-                  const targetPlatformName = t.side.includes("tidal") ? "Tidal" : "Spotify";
-
+                  const open = rematchIndex === i;
+                  const destName = isSpotifySpotify ? "Spotify 2" : "Tidal";
                   return (
-                    <li key={i} className="rounded-xl bg-black/30 p-2.5 border border-[var(--border)]/70">
-                      <div className="font-medium text-white truncate">{t.title}</div>
-                      <div className="text-[var(--muted)] mt-0.5 truncate">
-                        {t.artists.join(", ")} · <span className="text-[var(--accent)]">{t.side}</span>
-                      </div>
-                      <div className="mt-2 pt-1.5 border-t border-white/5 flex items-center justify-end">
-                        <a
-                          href={targetSearchUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[11px] text-[var(--spotify)] hover:underline"
+                    <li key={`${t.title}-${i}`} className="rounded-xl bg-black/30 p-2.5 border border-[var(--border)]/70">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-medium text-white truncate">{t.title}</div>
+                          <div className="text-[var(--muted)] mt-0.5 truncate">{t.artists.join(", ")}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRematchIndex(open ? null : i);
+                            setRematchHits([]);
+                            setRematchQuery(`${t.title} ${t.artists[0] || ""}`.trim());
+                          }}
+                          className="shrink-0 rounded-lg border border-[var(--border)] px-2 py-1 text-[11px] hover:border-white"
                         >
-                          Auf {targetPlatformName} suchen ↗
-                        </a>
+                          {open ? "Schließen" : "Zuordnen"}
+                        </button>
                       </div>
+                      {open ? (
+                        <div className="mt-2 border-t border-white/5 pt-2">
+                          <div className="flex gap-2">
+                            <input
+                              value={rematchQuery}
+                              onChange={(e) => setRematchQuery(e.target.value)}
+                              className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-black/40 px-2 py-1.5 text-white"
+                            />
+                            <button
+                              type="button"
+                              disabled={rematchBusy}
+                              onClick={() => void searchRematch(t.title, t.artists)}
+                              className="rounded-lg bg-white px-2 py-1.5 text-[11px] font-semibold text-black disabled:opacity-40"
+                            >
+                              Suchen
+                            </button>
+                          </div>
+                          {rematchHits.length ? (
+                            <ul className="mt-2 space-y-1">
+                              {rematchHits.map((hit) => (
+                                <li key={hit.id}>
+                                  <button
+                                    type="button"
+                                    disabled={rematchBusy}
+                                    onClick={() => void saveRematch(t.title, t.artists, hit.id)}
+                                    className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-white/5 disabled:opacity-40"
+                                  >
+                                    <span className="min-w-0 truncate text-white">
+                                      {hit.title}
+                                      <span className="text-[var(--muted)]"> · {hit.artists.join(", ")}</span>
+                                    </span>
+                                    <span className="shrink-0 text-[var(--spotify)]">Nach {destName}</span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </li>
                   );
                 })}
@@ -566,7 +645,9 @@ function PairDetailInner() {
                     {job.removedTidal > 0 ? (
                       <span className="text-[var(--danger)]">-{job.removedTidal} Tidal</span>
                     ) : null}
-                    {!running && idleCounts ? (
+                    {job.status === "failed" ? (
+                      <span className="text-[var(--danger)]">Abgebrochen</span>
+                    ) : !running && idleCounts ? (
                       <span className="text-[var(--muted)]">Keine Änderungen</span>
                     ) : null}
                     {running ? (
@@ -592,26 +673,14 @@ function PairDetailInner() {
   );
 }
 
-function Stat({
-  label,
-  value,
-  danger,
-}: {
-  label: string;
-  value: number;
-  danger?: boolean;
-}) {
-  return (
-    <div className="rounded-2xl bg-black/30 p-3 border border-[var(--border)]/60">
-      <div className="text-xs text-[var(--muted)]">{label}</div>
-      <div
-        className="mt-1 text-xl font-semibold"
-        style={{ color: danger && value > 0 ? "var(--danger)" : "var(--text)" }}
-      >
-        {value}
-      </div>
-    </div>
-  );
+function modeName(mode: string) {
+  if (mode === "mirror") return "Mirror";
+  if (mode === "one_way_b_to_a") return "Ziel → Quelle";
+  return "Quelle → Ziel";
+}
+
+function isSourceToTarget(mode: string) {
+  return mode !== "mirror" && mode !== "one_way_b_to_a";
 }
 
 export default function PairDetailPage() {
