@@ -45,7 +45,7 @@ export function formatApiError(input: unknown, fallback = "Etwas ist schiefgelau
     return "API-Limit erreicht (429) — Tidal/Spotify bittet um eine kurze Pause. Bitte in ein paar Minuten erneut versuchen.";
   }
   if (lower.includes("invalid include path") || lower.includes("generic_request_error")) {
-    return "Tidal-API-Format wurde aktualisiert — bitte jetzt synchronisieren.";
+    return "Tidal lehnt den API-Aufruf ab (falscher include-Pfad). App-Update nötig — danach erneut synchronisieren.";
   }
   if (lower.includes("failed query") || lower.includes("track_matches")) {
     return "Sync abgebrochen: ein Titel hatte keine gültige Dauer. Bitte den Lauf erneut starten.";

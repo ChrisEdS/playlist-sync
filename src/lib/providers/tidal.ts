@@ -437,52 +437,55 @@ export async function removeTracksFromTidalPlaylist(playlistId: string, trackIds
   }
 }
 
-export async function searchTidalTrack(track: NormalizedTrack): Promise<NormalizedTrack | null> {
-  const query = track.isrc || `${track.title} ${track.artists[0] || ""}`.trim();
+/** Tidal OpenAPI: /searchResults/{q}/relationships/tracks only allows include=tracks. */
+function mapSearchTracks(
+  data: { data?: TrackResource[]; included?: Array<Record<string, unknown>> },
+  fallbackTitle: string,
+  fallbackArtists: string[] = [],
+): NormalizedTrack[] {
+  const byId = new Map<string, TrackResource>();
+  for (const item of data.included || []) {
+    if (item.type === "tracks" && typeof item.id === "string") {
+      byId.set(item.id, item as TrackResource);
+    }
+  }
+  const refs = data.data?.length ? data.data : [...byId.values()];
+  return refs
+    .map((ref) => {
+      const t = byId.get(ref.id) || (ref.type === "tracks" ? ref : undefined);
+      if (!t?.id) return null;
+      return {
+        id: t.id,
+        isrc: t.attributes?.isrc,
+        title: t.attributes?.title || fallbackTitle,
+        artists:
+          (t.attributes?.artists?.map((a) => a.name).filter(Boolean) as string[]) ||
+          fallbackArtists,
+        durationMs: asDurationMs((Number(t.attributes?.duration) || 0) * 1000),
+        album: t.attributes?.album?.title,
+      } satisfies NormalizedTrack;
+    })
+    .filter(Boolean) as NormalizedTrack[];
+}
+
+async function searchTidalTrackCandidates(query: string): Promise<NormalizedTrack[]> {
   const data = await tidalFetchRaw<{
     data?: TrackResource[];
     included?: Array<Record<string, unknown>>;
-  }>(`/searchResults/${encodeURIComponent(query)}/relationships/tracks?include=tracks,artists`);
+  }>(`/searchResults/${encodeURIComponent(query)}/relationships/tracks?include=tracks`);
+  return mapSearchTracks(data, query);
+}
 
-  const tracks =
-    (data.included?.filter((i) => i.type === "tracks") as TrackResource[] | undefined) ||
-    data.data ||
-    [];
-
-  const candidates: NormalizedTrack[] = tracks.map((t) => ({
-    id: t.id,
-    isrc: t.attributes?.isrc,
-    title: t.attributes?.title || track.title,
-    artists:
-      (t.attributes?.artists?.map((a) => a.name).filter(Boolean) as string[]) || track.artists,
-    durationMs: asDurationMs((Number(t.attributes?.duration) || 0) * 1000),
-  }));
-
+export async function searchTidalTrack(track: NormalizedTrack): Promise<NormalizedTrack | null> {
+  const query = track.isrc || `${track.title} ${track.artists[0] || ""}`.trim();
+  const candidates = await searchTidalTrackCandidates(query);
   const match = findBestMatch(track, candidates);
   if (match) return match;
 
   // Fallback: If query was ISRC and yielded no match, try searching by title + artist
   if (track.isrc) {
     const plain = `${track.title} ${track.artists[0] || ""}`.trim();
-    const fallbackData = await tidalFetchRaw<{
-      data?: TrackResource[];
-      included?: Array<Record<string, unknown>>;
-    }>(`/searchResults/${encodeURIComponent(plain)}/relationships/tracks?include=tracks,artists`);
-
-    const fallbackTracks =
-      (fallbackData.included?.filter((i) => i.type === "tracks") as TrackResource[] | undefined) ||
-      fallbackData.data ||
-      [];
-
-    const fallbackCandidates: NormalizedTrack[] = fallbackTracks.map((t) => ({
-      id: t.id,
-      isrc: t.attributes?.isrc,
-      title: t.attributes?.title || track.title,
-      artists:
-        (t.attributes?.artists?.map((a) => a.name).filter(Boolean) as string[]) || track.artists,
-      durationMs: asDurationMs((Number(t.attributes?.duration) || 0) * 1000),
-    }));
-
+    const fallbackCandidates = await searchTidalTrackCandidates(plain);
     return findBestMatch(track, fallbackCandidates);
   }
 
@@ -490,22 +493,5 @@ export async function searchTidalTrack(track: NormalizedTrack): Promise<Normaliz
 }
 
 export async function searchTidalTracksByQuery(query: string): Promise<NormalizedTrack[]> {
-  const data = await tidalFetchRaw<{
-    data?: TrackResource[];
-    included?: Array<Record<string, unknown>>;
-  }>(`/searchResults/${encodeURIComponent(query)}/relationships/tracks?include=tracks,artists`);
-
-  const tracks =
-    (data.included?.filter((i) => i.type === "tracks") as TrackResource[] | undefined) ||
-    data.data ||
-    [];
-
-  return tracks.slice(0, 8).map((t) => ({
-    id: t.id,
-    isrc: t.attributes?.isrc,
-    title: t.attributes?.title || query,
-    artists: (t.attributes?.artists?.map((a) => a.name).filter(Boolean) as string[]) || [],
-    durationMs: asDurationMs((Number(t.attributes?.duration) || 0) * 1000),
-    album: t.attributes?.album?.title,
-  }));
+  return (await searchTidalTrackCandidates(query)).slice(0, 8);
 }
