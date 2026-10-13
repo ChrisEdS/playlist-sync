@@ -21,6 +21,7 @@ export default function DashboardPage() {
   const [groupBy, setGroupBy] = useState<"mode" | "destination" | "status">("mode");
   const [sortBy, setSortBy] = useState<"name" | "songs" | "recent">("name");
   const [view, setView] = useState<"list" | "tiles">("tiles");
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   const rateLimited = useMemo(
     () => pairs.filter((p) => (p.lastError || "").includes("429")).length,
@@ -286,14 +287,29 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
-        <div className="mt-6 space-y-8">
-          {groups.map((group) => (
-            <section key={group.key}>
-              <h2 className="mb-3 text-sm font-semibold text-[var(--muted)]">
-                {group.label}
-                <span className="ml-2 text-xs font-normal">{group.pairs.length}</span>
-              </h2>
-              <div className={view === "tiles" ? "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" : "space-y-2"}>
+        <div className="mt-6 space-y-3">
+          {groups.map((group) => {
+            const storageKey = `${groupBy}:${group.key}`;
+            const open = openGroups[storageKey] ?? group.pairs.length <= 8;
+            return (
+            <section key={group.key} className="rounded-2xl border border-[var(--border)] bg-black/20">
+              <button
+                type="button"
+                onClick={() =>
+                  setOpenGroups((prev) => ({ ...prev, [storageKey]: !open }))
+                }
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+              >
+                <span className="text-sm font-semibold text-white">
+                  {group.label}
+                  <span className="ml-2 text-xs font-normal text-[var(--muted)]">
+                    {group.pairs.length}
+                  </span>
+                </span>
+                <span className="text-xs text-[var(--muted)]">{open ? "Einklappen" : "Aufklappen"}</span>
+              </button>
+              {open ? (
+              <div className={`border-t border-[var(--border)] p-3 ${view === "tiles" ? "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" : "space-y-2"}`}>
                 {group.pairs.map((pair) => (
                   <PairRow
                     key={pair.id}
@@ -309,8 +325,10 @@ export default function DashboardPage() {
                   />
                 ))}
               </div>
+              ) : null}
             </section>
-          ))}
+            );
+          })}
           {!pairs.length && !error && canPair && !showOnboarding ? (
             <div className="rounded-3xl border border-dashed border-[var(--border)] p-12 text-center text-[var(--muted)]">
               <p className="text-base font-medium text-white">Noch keine Playlist-Paare angelegt.</p>
