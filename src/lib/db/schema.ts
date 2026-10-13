@@ -35,15 +35,20 @@ export const providerApps = pgTable("provider_apps", {
 export const playlistPairs = pgTable("playlist_pairs", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
-  spotifyPlaylistId: text("spotify_playlist_id").notNull(),
-  tidalPlaylistId: text("tidal_playlist_id").notNull(),
+  /** "spotify_tidal" | "spotify_spotify" */
+  pairType: text("pair_type").notNull().default("spotify_tidal"),
+  spotifyPlaylistId: text("spotify_playlist_id"),
+  tidalPlaylistId: text("tidal_playlist_id"),
+  spotify2PlaylistId: text("spotify2_playlist_id"),
   spotifyPlaylistUrl: text("spotify_playlist_url"),
   tidalPlaylistUrl: text("tidal_playlist_url"),
+  spotify2PlaylistUrl: text("spotify2_playlist_url"),
   coverImages: jsonb("cover_images").$type<string[]>().default([]),
   enabled: integer("enabled").notNull().default(1),
-  /** additive = only add missing tracks; mirror = also propagate removals */
+  /** additive | mirror | one_way_a_to_b | one_way_b_to_a */
   syncMode: text("sync_mode").notNull().default("additive"),
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+  lastSpotifySnapshotId: text("last_spotify_snapshot_id"),
   lastError: text("last_error"),
   songCount: integer("song_count").notNull().default(0),
   matchedCount: integer("matched_count").notNull().default(0),
@@ -52,6 +57,9 @@ export const playlistPairs = pgTable("playlist_pairs", {
   status: text("status").notNull().default("idle"), // idle | syncing | matching | error
   unmatchedTracks: jsonb("unmatched_tracks")
     .$type<Array<{ title: string; artists: string[]; side: string }>>()
+    .default([]),
+  heldRemovals: jsonb("held_removals")
+    .$type<Array<{ title: string; artists: string[]; from: string }>>()
     .default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -77,6 +85,10 @@ export const trackMatches = pgTable(
     durationMs: integer("duration_ms").notNull().default(0),
     spotifyTrackId: text("spotify_track_id"),
     tidalTrackId: text("tidal_track_id"),
+    spotifyNotFound: integer("spotify_not_found").notNull().default(0),
+    tidalNotFound: integer("tidal_not_found").notNull().default(0),
+    spotifySearchedAt: timestamp("spotify_searched_at", { withTimezone: true }),
+    tidalSearchedAt: timestamp("tidal_searched_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

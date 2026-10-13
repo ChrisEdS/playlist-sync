@@ -1,4 +1,5 @@
-export type ServiceProvider = "spotify" | "tidal";
+export type ServiceProvider = "spotify" | "spotify_2" | "tidal";
+export type SpotifyAccountSlot = "spotify" | "spotify_2";
 
 export type NormalizedTrack = {
   id: string;

@@ -21,10 +21,13 @@ type Plan = {
 type Pair = {
   id: string;
   name: string;
-  spotifyPlaylistId: string;
-  tidalPlaylistId: string;
+  pairType?: string;
+  spotifyPlaylistId?: string | null;
+  tidalPlaylistId?: string | null;
+  spotify2PlaylistId?: string | null;
   spotifyPlaylistUrl?: string | null;
   tidalPlaylistUrl?: string | null;
+  spotify2PlaylistUrl?: string | null;
   syncMode: string;
   enabled: number;
   status: string;
@@ -32,6 +35,7 @@ type Pair = {
   unmatchedCount: number;
   lastError: string | null;
   lastSyncedAt: string | null;
+  heldRemovals?: Array<{ title: string; artists: string[]; from: string }> | null;
   unmatchedTracks?: Array<{ title: string; artists: string[]; side: string }> | null;
 };
 
@@ -112,7 +116,11 @@ function PairDetailInner() {
     setError(null);
     setConfirmMirror(false);
     try {
-      const res = await fetch(`/api/pairs/${id}/sync`, { method: "POST" });
+      const res = await fetch(`/api/pairs/${id}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ forceMirror: Boolean(opts?.forceMirror) }),
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(formatApiError(json.error || "Sync fehlgeschlagen"));
       router.replace(`/pairs/${id}`);
@@ -167,8 +175,13 @@ function PairDetailInner() {
     );
   }
 
-  const spotifyUrl = getPlaylistWebUrl("spotify", pair.spotifyPlaylistId, pair.spotifyPlaylistUrl);
-  const tidalUrl = getPlaylistWebUrl("tidal", pair.tidalPlaylistId, pair.tidalPlaylistUrl);
+  const isSpotifySpotify = pair.pairType === "spotify_spotify";
+  const spotify1Url = getPlaylistWebUrl("spotify", pair.spotifyPlaylistId, pair.spotifyPlaylistUrl);
+  const sideBUrl = isSpotifySpotify
+    ? getPlaylistWebUrl("spotify", pair.spotify2PlaylistId, pair.spotify2PlaylistUrl)
+    : getPlaylistWebUrl("tidal", pair.tidalPlaylistId, pair.tidalPlaylistUrl);
+
+  const hasHeldRemovals = Boolean(pair.heldRemovals && pair.heldRemovals.length > 0);
 
   return (
     <AppShell>
@@ -191,29 +204,37 @@ function PairDetailInner() {
             {/* Direct Platform links & Badges */}
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <a
-                href={spotifyUrl}
+                href={spotify1Url}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-black/40 px-3 py-1 text-xs hover:border-[var(--spotify)] transition"
-                title="Auf Spotify öffnen ↗"
+                title="Auf Spotify (Account 1) öffnen ↗"
               >
-                <ServiceBadge service="spotify" />
-                <span className="text-white font-medium">Spotify öffnen ↗</span>
+                <ServiceBadge service="spotify" label={isSpotifySpotify ? "Spotify 1" : "Spotify"} />
+                <span className="text-white font-medium">Öffnen ↗</span>
               </a>
 
               <a
-                href={tidalUrl}
+                href={sideBUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-black/40 px-3 py-1 text-xs hover:border-[var(--tidal)] transition"
-                title="Auf Tidal öffnen ↗"
+                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-black/40 px-3 py-1 text-xs hover:border-white/50 transition"
+                title={`Auf ${isSpotifySpotify ? "Spotify (Account 2)" : "Tidal"} öffnen ↗`}
               >
-                <ServiceBadge service="tidal" />
-                <span className="text-white font-medium">Tidal öffnen ↗</span>
+                {isSpotifySpotify ? (
+                  <ServiceBadge service="spotify_2" label="Spotify 2" />
+                ) : (
+                  <ServiceBadge service="tidal" />
+                )}
+                <span className="text-white font-medium">Öffnen ↗</span>
               </a>
 
               <span className="rounded-full bg-black/40 px-2.5 py-1 text-xs text-[var(--muted)] border border-[var(--border)] uppercase tracking-wider text-[10px]">
-                {pair.syncMode === "mirror" ? "Mirror-Sync" : "Additive-Sync"}
+                {pair.syncMode === "mirror"
+                  ? "Mirror-Sync"
+                  : pair.syncMode.startsWith("one_way")
+                    ? "Einweg-Sync"
+                    : "Additive-Sync"}
               </span>
 
               <span className="text-xs text-[var(--muted)]">
@@ -224,6 +245,27 @@ function PairDetailInner() {
 
           {/* Action buttons */}
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            {/* Export Dropdown */}
+            <div className="flex items-center gap-1.5 bg-black/30 border border-[var(--border)] rounded-2xl p-1">
+              <a
+                href={`/api/pairs/${pair.id}/export?format=m3u8`}
+                download
+                className="px-3 py-1.5 text-xs font-semibold text-white hover:text-[var(--spotify)] transition"
+                title="Playlist als .m3u8 Datei exportieren"
+              >
+                ↓ M3U8
+              </a>
+              <span className="text-[var(--border)]">|</span>
+              <a
+                href={`/api/pairs/${pair.id}/export?format=csv`}
+                download
+                className="px-2.5 py-1.5 text-xs text-[var(--muted)] hover:text-white transition"
+                title="Playlist als CSV-Tabelle exportieren"
+              >
+                CSV
+              </a>
+            </div>
+
             <button
               onClick={runPreview}
               disabled={previewing}
@@ -240,6 +282,28 @@ function PairDetailInner() {
             </button>
           </div>
         </div>
+
+        {/* Safety Brake Notice if removals were held */}
+        {hasHeldRemovals ? (
+          <div className="mt-5 rounded-2xl border border-[var(--accent)]/50 bg-[var(--accent)]/10 p-5 text-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold text-[var(--accent)]">
+                  Lösch-Notbremse aktiv: {pair.heldRemovals!.length} Entfernungen wurden gestoppt
+                </p>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  SongMirror-Sicherheitsnetz: Um deine Musikbibliothek vor versehentlichem Leeren zu schützen, wurden Massenlöschungen pausiert.
+                </p>
+              </div>
+              <button
+                onClick={() => void startSync({ forceMirror: true })}
+                className="rounded-xl bg-[var(--danger)] px-4 py-2 text-xs font-semibold text-white hover:brightness-110 transition shrink-0"
+              >
+                Löschungen freigeben
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {/* Warning if Mirror deletes */}
         {confirmMirror ? (
@@ -272,7 +336,7 @@ function PairDetailInner() {
           <div className="mt-6 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5 shadow-sm">
             <div className="flex items-center justify-between">
               <h2 className="font-semibold text-base text-white">
-                Erkannte Differenzen ({plan.syncMode === "mirror" ? "Mirror" : "Additive"})
+                Erkannte Differenzen ({plan.syncMode})
               </h2>
               <span className="text-xs text-[var(--muted)]">
                 {plan.addToSpotify + plan.addToTidal + plan.removeFromSpotify + plan.removeFromTidal === 0
@@ -282,10 +346,10 @@ function PairDetailInner() {
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-              <Stat label="Zu Spotify hinzufügen" value={plan.addToSpotify} />
-              <Stat label="Zu Tidal hinzufügen" value={plan.addToTidal} />
-              <Stat label="Von Spotify entfernen" value={plan.removeFromSpotify} danger />
-              <Stat label="Von Tidal entfernen" value={plan.removeFromTidal} danger />
+              <Stat label="Zu Seite A hinzufügen" value={plan.addToSpotify} />
+              <Stat label="Zu Seite B hinzufügen" value={plan.addToTidal} />
+              <Stat label="Von Seite A entfernen" value={plan.removeFromSpotify} danger />
+              <Stat label="Von Seite B entfernen" value={plan.removeFromTidal} danger />
             </div>
 
             {/* List of additions */}
@@ -313,7 +377,7 @@ function PairDetailInner() {
                         <strong className="font-medium">{t.title}</strong> — {t.artists.join(", ")}
                       </span>
                       <span className="shrink-0 text-[var(--muted)] ml-2">
-                        → {t.to === "spotify" ? "Spotify" : "Tidal"}
+                        → {t.to}
                       </span>
                     </li>
                   ))}
@@ -346,7 +410,7 @@ function PairDetailInner() {
                         <strong className="font-medium">{t.title}</strong> — {t.artists.join(", ")}
                       </span>
                       <span className="shrink-0 text-[var(--danger)] ml-2">
-                        von {t.from === "spotify" ? "Spotify" : "Tidal"}
+                        von {t.from}
                       </span>
                     </li>
                   ))}
@@ -380,14 +444,16 @@ function PairDetailInner() {
                 onChange={(e) => patch({ syncMode: e.target.value })}
               >
                 <option value="additive">Additive (Nur hinzufügen, keine Löschungen)</option>
-                <option value="mirror">Mirror (Vollständige Spiegelung inkl. Löschungen)</option>
+                <option value="mirror">Mirror (Zwei-Wege Spiegelung mit Löschungen)</option>
+                <option value="one_way_a_to_b">Einweg (Seite A bestimmt Seite B 1:1)</option>
+                <option value="one_way_b_to_a">Einweg (Seite B bestimmt Seite A 1:1)</option>
               </select>
             </div>
 
             <div className="mt-4.5 text-xs text-[var(--muted)] space-y-1">
               <p>Zuletzt synchronisiert: {formatRelativeTime(pair.lastSyncedAt)}</p>
               {pair.lastError ? (
-                <p className="text-[var(--danger)]">Fehler: {pair.lastError}</p>
+                <p className="text-[var(--danger)]">Status: {pair.lastError}</p>
               ) : null}
             </div>
 
@@ -415,10 +481,10 @@ function PairDetailInner() {
               <ul className="mt-4 max-h-72 space-y-2.5 overflow-auto text-xs pr-1">
                 {pair.unmatchedTracks.map((t, i) => {
                   const targetSearchUrl =
-                    t.side === "spotify→tidal"
+                    t.side.includes("tidal")
                       ? `https://listen.tidal.com/search?q=${encodeURIComponent(`${t.title} ${t.artists[0] || ""}`)}`
                       : `https://open.spotify.com/search/${encodeURIComponent(`${t.title} ${t.artists[0] || ""}`)}`;
-                  const targetPlatformName = t.side === "spotify→tidal" ? "Tidal" : "Spotify";
+                  const targetPlatformName = t.side.includes("tidal") ? "Tidal" : "Spotify";
 
                   return (
                     <li key={i} className="rounded-xl bg-black/30 p-2.5 border border-[var(--border)]/70">
@@ -442,7 +508,7 @@ function PairDetailInner() {
               </ul>
             ) : (
               <p className="mt-4 text-xs text-[var(--muted)] py-4">
-                Keine nicht-zugeordneten Songs beim letzten Sync. Alle Titel wurden erfolgreich auf beiden Plattformen abgeglichen.
+                Keine nicht-zugeordneten Songs beim letzten Sync. Alle Titel wurden erfolgreich abgeglichen.
               </p>
             )}
           </div>

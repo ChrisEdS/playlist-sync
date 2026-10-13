@@ -63,7 +63,8 @@ function SettingsInner() {
   useEffect(() => {
     const connected = params.get("connected");
     const error = params.get("error");
-    if (connected === "spotify") setNotice("Spotify verbunden.");
+    if (connected === "spotify") setNotice("Spotify (Hauptaccount) verbunden.");
+    else if (connected === "spotify_2") setNotice("Spotify (Zweitaccount) erfolgreich verbunden.");
     else if (connected === "tidal") setNotice("Tidal verbunden.");
     else if (connected) setNotice(`${connected} verbunden.`);
     if (error === "spotify_credentials_missing") {
@@ -157,7 +158,7 @@ function SettingsInner() {
         <div className="mt-8 space-y-6">
           <ProviderSetup
             service="spotify"
-            title="Spotify"
+            title="Spotify (Hauptaccount)"
             connected={Boolean(data?.connections.spotify.connected)}
             accountName={data?.connections.spotify.displayName}
             status={creds?.credentials.spotify}
@@ -168,6 +169,67 @@ function SettingsInner() {
               refresh();
             }}
           />
+
+          {/* Spotify Secondary Account Card */}
+          <section className="rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5 md:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <ServiceBadge service="spotify" />
+                  <StatusPill
+                    ok={Boolean(data?.connections.spotify_2?.connected)}
+                    label={
+                      data?.connections.spotify_2?.connected
+                        ? "Account 2 verbunden"
+                        : "Account 2 nicht verbunden"
+                    }
+                  />
+                  <span className="text-xs text-[var(--accent)] font-medium">
+                    Für Spotify ↔ Spotify Sync
+                  </span>
+                </div>
+                <h2 className="mt-3 text-xl font-semibold">Spotify (Zweitaccount)</h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {data?.connections.spotify_2?.connected
+                    ? data.connections.spotify_2.displayName || "Account 2 verknüpft"
+                    : "Verbinde ein zweites Spotify-Konto, um Playlists zwischen zwei Spotify-Profilen zu synchronisieren"}
+                </p>
+                <p className="mt-2 text-xs text-[var(--muted)]">
+                  Nutzt dieselben Developer-Keys wie oben. Beim Verbinden öffnet Spotify die Kontoauswahl.
+                </p>
+              </div>
+
+              {creds?.credentials.spotify.configured ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  {data?.connections.spotify_2?.connected ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await fetch("/api/connections/spotify_2", { method: "DELETE" });
+                        refresh();
+                      }}
+                      className="text-sm text-[var(--danger)] hover:underline"
+                    >
+                      Account 2 trennen
+                    </button>
+                  ) : null}
+                  <a
+                    href="/api/auth/spotify?account=spotify_2"
+                    className="inline-flex items-center justify-center rounded-2xl bg-[var(--spotify)] px-5 py-3 text-sm font-semibold text-black hover:brightness-110 transition"
+                  >
+                    {data?.connections.spotify_2?.connected
+                      ? "Account 2 wechseln"
+                      : "Zweiten Account verbinden"}
+                  </a>
+                </div>
+              ) : (
+                <span className="rounded-2xl border border-[var(--border)] px-5 py-3 text-sm text-[var(--muted)]">
+                  Zuerst Spotify-Keys oben speichern
+                </span>
+              )}
+            </div>
+          </section>
+
           <ProviderSetup
             service="tidal"
             title="Tidal"

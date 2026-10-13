@@ -1,8 +1,11 @@
 import { getAppUrl } from "../env";
 import { randomToken } from "../crypto";
-import type { NormalizedPlaylist, NormalizedTrack, TokenBundle } from "./types";
+import { findBestMatch } from "../matching";
+import type { NormalizedPlaylist, NormalizedTrack, SpotifyAccountSlot, TokenBundle } from "./types";
 import { getProviderCredentials } from "./credentials";
 import { getDecryptedTokens, saveTokens } from "./tokens";
+
+export type { SpotifyAccountSlot };
 
 const AUTH = "https://accounts.spotify.com";
 const API = "https://api.spotify.com/v1";
@@ -22,7 +25,7 @@ async function spotifyAppCreds() {
   return creds;
 }
 
-export async function spotifyAuthUrl(state: string): Promise<string> {
+export async function spotifyAuthUrl(state: string, showDialog = false): Promise<string> {
   const { clientId } = await spotifyAppCreds();
   const params = new URLSearchParams({
     client_id: clientId,
@@ -30,7 +33,7 @@ export async function spotifyAuthUrl(state: string): Promise<string> {
     redirect_uri: `${getAppUrl()}/api/auth/spotify/callback`,
     scope: SCOPES,
     state,
-    show_dialog: "false",
+    show_dialog: showDialog ? "true" : "false",
   });
   return `${AUTH}/authorize?${params}`;
 }
@@ -60,6 +63,7 @@ export async function exchangeSpotifyCode(code: string): Promise<TokenBundle> {
   };
   const me = await spotifyFetch<{ id: string; display_name?: string }>(
     "/me",
+    "spotify",
     data.access_token,
   );
   return {
@@ -102,23 +106,31 @@ async function refreshAccessToken(refreshToken: string): Promise<TokenBundle> {
   };
 }
 
-export async function getSpotifyAccessToken(): Promise<string> {
-  const tokens = await getDecryptedTokens("spotify");
-  if (!tokens) throw new Error("Spotify is not connected");
+export async function getSpotifyAccessToken(account: SpotifyAccountSlot = "spotify"): Promise<string> {
+  const tokens = await getDecryptedTokens(account);
+  if (!tokens) {
+    throw new Error(`${account === "spotify_2" ? "Spotify (Account 2)" : "Spotify"} ist nicht verbunden`);
+  }
   if (tokens.expiresAt && tokens.expiresAt.getTime() > Date.now() + 60_000) {
     return tokens.accessToken;
   }
-  if (!tokens.refreshToken) throw new Error("Spotify refresh token missing — reconnect");
+  if (!tokens.refreshToken) {
+    throw new Error(`${account === "spotify_2" ? "Spotify (Account 2)" : "Spotify"} Refresh-Token fehlt — bitte neu verbinden`);
+  }
   const refreshed = await refreshAccessToken(tokens.refreshToken);
-  await saveTokens("spotify", {
+  await saveTokens(account, {
     ...tokens,
     ...refreshed,
   });
   return refreshed.accessToken;
 }
 
-async function spotifyFetch<T>(path: string, accessToken?: string): Promise<T> {
-  const token = accessToken || (await getSpotifyAccessToken());
+async function spotifyFetch<T>(
+  path: string,
+  account: SpotifyAccountSlot = "spotify",
+  accessToken?: string,
+): Promise<T> {
+  const token = accessToken || (await getSpotifyAccessToken(account));
   const res = await fetch(`${API}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -159,7 +171,9 @@ type SpotifyTracksPage = {
   next: string | null;
 };
 
-export async function listSpotifyPlaylists(): Promise<NormalizedPlaylist[]> {
+export async function listSpotifyPlaylists(
+  account: SpotifyAccountSlot = "spotify",
+): Promise<NormalizedPlaylist[]> {
   const items: NormalizedPlaylist[] = [];
   const limit = 50;
   let offset = 0;
@@ -170,6 +184,7 @@ export async function listSpotifyPlaylists(): Promise<NormalizedPlaylist[]> {
   while (offset < total) {
     const page: SpotifyPlaylistPage = await spotifyFetch<SpotifyPlaylistPage>(
       `/me/playlists?limit=${limit}&offset=${offset}`,
+      account,
     );
     total = typeof page.total === "number" ? page.total : offset + (page.items?.length || 0);
     for (const p of page.items || []) {
@@ -189,12 +204,16 @@ export async function listSpotifyPlaylists(): Promise<NormalizedPlaylist[]> {
   return items;
 }
 
-export async function getSpotifyPlaylistTracks(playlistId: string): Promise<NormalizedTrack[]> {
+export async function getSpotifyPlaylistTracks(
+  playlistId: string,
+  account: SpotifyAccountSlot = "spotify",
+): Promise<NormalizedTrack[]> {
   const tracks: NormalizedTrack[] = [];
   let url: string | null = `/playlists/${playlistId}/tracks?limit=100&fields=items(track(id,name,duration_ms,external_ids,artists(name),uri,album(name))),next`;
   while (url) {
     const page: SpotifyTracksPage = await spotifyFetch<SpotifyTracksPage>(
       url.startsWith("http") ? url.replace(API, "") : url,
+      account,
     );
     for (const item of page.items) {
       const t = item.track;
@@ -214,9 +233,13 @@ export async function getSpotifyPlaylistTracks(playlistId: string): Promise<Norm
   return tracks;
 }
 
-export async function createSpotifyPlaylist(name: string, description?: string): Promise<NormalizedPlaylist> {
-  const me = await spotifyFetch<{ id: string }>("/me");
-  const token = await getSpotifyAccessToken();
+export async function createSpotifyPlaylist(
+  name: string,
+  description?: string,
+  account: SpotifyAccountSlot = "spotify",
+): Promise<NormalizedPlaylist> {
+  const me = await spotifyFetch<{ id: string }>("/me", account);
+  const token = await getSpotifyAccessToken(account);
   const res = await fetch(`${API}/users/${me.id}/playlists`, {
     method: "POST",
     headers: {
@@ -245,9 +268,13 @@ export async function createSpotifyPlaylist(name: string, description?: string):
   };
 }
 
-export async function addTracksToSpotifyPlaylist(playlistId: string, trackIds: string[]) {
+export async function addTracksToSpotifyPlaylist(
+  playlistId: string,
+  trackIds: string[],
+  account: SpotifyAccountSlot = "spotify",
+) {
   if (!trackIds.length) return;
-  const token = await getSpotifyAccessToken();
+  const token = await getSpotifyAccessToken(account);
   for (let i = 0; i < trackIds.length; i += 100) {
     const chunk = trackIds.slice(i, i + 100).map((id) => `spotify:track:${id}`);
     const res = await fetch(`${API}/playlists/${playlistId}/tracks`, {
@@ -262,9 +289,13 @@ export async function addTracksToSpotifyPlaylist(playlistId: string, trackIds: s
   }
 }
 
-export async function removeTracksFromSpotifyPlaylist(playlistId: string, trackIds: string[]) {
+export async function removeTracksFromSpotifyPlaylist(
+  playlistId: string,
+  trackIds: string[],
+  account: SpotifyAccountSlot = "spotify",
+) {
   if (!trackIds.length) return;
-  const token = await getSpotifyAccessToken();
+  const token = await getSpotifyAccessToken(account);
   for (let i = 0; i < trackIds.length; i += 100) {
     const chunk = trackIds.slice(i, i + 100).map((id) => ({ uri: `spotify:track:${id}` }));
     const res = await fetch(`${API}/playlists/${playlistId}/tracks`, {
@@ -279,7 +310,10 @@ export async function removeTracksFromSpotifyPlaylist(playlistId: string, trackI
   }
 }
 
-export async function searchSpotifyTrack(track: NormalizedTrack): Promise<NormalizedTrack | null> {
+export async function searchSpotifyTrack(
+  track: NormalizedTrack,
+  account: SpotifyAccountSlot = "spotify",
+): Promise<NormalizedTrack | null> {
   const q = track.isrc
     ? `isrc:${track.isrc}`
     : `track:${track.title} artist:${track.artists[0] || ""}`;
@@ -295,18 +329,51 @@ export async function searchSpotifyTrack(track: NormalizedTrack): Promise<Normal
         album?: { name: string };
       }>;
     };
-  }>(`/search?type=track&limit=5&q=${encodeURIComponent(q)}`);
-  const first = data.tracks.items[0];
-  if (!first) return null;
-  return {
-    id: first.id,
-    isrc: first.external_ids?.isrc,
-    title: first.name,
-    artists: first.artists.map((a) => a.name),
-    durationMs: first.duration_ms,
-    album: first.album?.name,
-    uri: first.uri,
-  };
+  }>(`/search?type=track&limit=8&q=${encodeURIComponent(q)}`, account);
+
+  const candidates: NormalizedTrack[] = (data.tracks?.items || []).map((item) => ({
+    id: item.id,
+    isrc: item.external_ids?.isrc,
+    title: item.name,
+    artists: item.artists.map((a) => a.name),
+    durationMs: item.duration_ms,
+    album: item.album?.name,
+    uri: item.uri,
+  }));
+
+  const match = findBestMatch(track, candidates);
+  if (match) return match;
+
+  // Fallback: If structured query with isrc/prefix didn't find a match, try plain keyword search
+  if (track.isrc || q.includes("track:")) {
+    const plain = `${track.title} ${track.artists[0] || ""}`.trim();
+    const fallbackData = await spotifyFetch<{
+      tracks: {
+        items: Array<{
+          id: string;
+          name: string;
+          duration_ms: number;
+          uri: string;
+          external_ids?: { isrc?: string };
+          artists: Array<{ name: string }>;
+          album?: { name: string };
+        }>;
+      };
+    }>(`/search?type=track&limit=8&q=${encodeURIComponent(plain)}`, account);
+
+    const fallbackCandidates: NormalizedTrack[] = (fallbackData.tracks?.items || []).map((item) => ({
+      id: item.id,
+      isrc: item.external_ids?.isrc,
+      title: item.name,
+      artists: item.artists.map((a) => a.name),
+      durationMs: item.duration_ms,
+      album: item.album?.name,
+      uri: item.uri,
+    }));
+    return findBestMatch(track, fallbackCandidates);
+  }
+
+  return null;
 }
 
 export function newOAuthState(): string {

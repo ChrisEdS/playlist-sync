@@ -5,8 +5,9 @@ import { formatApiError } from "@/lib/format-error";
 
 export type StatusPayload = {
   connections: {
-    spotify: { connected: boolean; displayName?: string | null };
-    tidal: { connected: boolean; displayName?: string | null };
+    spotify: { connected: boolean; displayName?: string | null; userId?: string | null };
+    spotify_2?: { connected: boolean; displayName?: string | null; userId?: string | null };
+    tidal: { connected: boolean; displayName?: string | null; userId?: string | null };
   };
   credentials?: {
     spotify: { configured: boolean };
@@ -16,6 +17,7 @@ export type StatusPayload = {
     spotifyKeys: boolean;
     tidalKeys: boolean;
     spotifyConnected: boolean;
+    spotify2Connected?: boolean;
     tidalConnected: boolean;
     hasPairs: boolean;
     pinDisabled: boolean;
@@ -24,6 +26,7 @@ export type StatusPayload = {
   pairs: Array<{
     id: string;
     name: string;
+    pairType?: string;
     songCount: number;
     matchedCount: number;
     unmatchedCount: number;
@@ -34,10 +37,13 @@ export type StatusPayload = {
     lastSyncedAt: string | null;
     lastError: string | null;
     enabled: number;
-    spotifyPlaylistId?: string;
-    tidalPlaylistId?: string;
+    spotifyPlaylistId?: string | null;
+    tidalPlaylistId?: string | null;
+    spotify2PlaylistId?: string | null;
     spotifyPlaylistUrl?: string | null;
     tidalPlaylistUrl?: string | null;
+    spotify2PlaylistUrl?: string | null;
+    heldRemovals?: Array<{ title: string; artists: string[]; from: string }> | null;
     unmatchedTracks?: Array<{ title: string; artists: string[]; side: string }> | null;
   }>;
   jobs: Array<{

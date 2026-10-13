@@ -9,7 +9,7 @@ export async function DELETE(_req: Request, { params }: Params) {
   const denied = await requireAuth();
   if (denied) return denied;
   const { provider } = await params;
-  if (provider !== "spotify" && provider !== "tidal") {
+  if (provider !== "spotify" && provider !== "spotify_2" && provider !== "tidal") {
     return jsonError("Invalid provider", 400);
   }
   const db = await getDb();

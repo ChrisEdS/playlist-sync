@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "crypto";
 import { getAppUrl } from "../env";
 import { randomToken } from "../crypto";
+import { findBestMatch } from "../matching";
 import type { NormalizedPlaylist, NormalizedTrack, TokenBundle } from "./types";
 import { getProviderCredentials } from "./credentials";
 import { getDecryptedTokens, saveTokens } from "./tokens";
@@ -384,7 +385,7 @@ export async function removeTracksFromTidalPlaylist(playlistId: string, trackIds
 }
 
 export async function searchTidalTrack(track: NormalizedTrack): Promise<NormalizedTrack | null> {
-  const query = track.isrc || `${track.title} ${track.artists[0] || ""}`;
+  const query = track.isrc || `${track.title} ${track.artists[0] || ""}`.trim();
   const data = await tidalFetchRaw<{
     data?: TrackResource[];
     included?: Array<Record<string, unknown>>;
@@ -394,14 +395,43 @@ export async function searchTidalTrack(track: NormalizedTrack): Promise<Normaliz
     (data.included?.filter((i) => i.type === "tracks") as TrackResource[] | undefined) ||
     data.data ||
     [];
-  const first = tracks[0];
-  if (!first) return null;
-  return {
-    id: first.id,
-    isrc: first.attributes?.isrc,
-    title: first.attributes?.title || track.title,
+
+  const candidates: NormalizedTrack[] = tracks.map((t) => ({
+    id: t.id,
+    isrc: t.attributes?.isrc,
+    title: t.attributes?.title || track.title,
     artists:
-      (first.attributes?.artists?.map((a) => a.name).filter(Boolean) as string[]) || track.artists,
-    durationMs: (first.attributes?.duration || 0) * 1000,
-  };
+      (t.attributes?.artists?.map((a) => a.name).filter(Boolean) as string[]) || track.artists,
+    durationMs: (t.attributes?.duration || 0) * 1000,
+  }));
+
+  const match = findBestMatch(track, candidates);
+  if (match) return match;
+
+  // Fallback: If query was ISRC and yielded no match, try searching by title + artist
+  if (track.isrc) {
+    const plain = `${track.title} ${track.artists[0] || ""}`.trim();
+    const fallbackData = await tidalFetchRaw<{
+      data?: TrackResource[];
+      included?: Array<Record<string, unknown>>;
+    }>(`/searchResults/${encodeURIComponent(plain)}/relationships/tracks?include=tracks,artists`);
+
+    const fallbackTracks =
+      (fallbackData.included?.filter((i) => i.type === "tracks") as TrackResource[] | undefined) ||
+      fallbackData.data ||
+      [];
+
+    const fallbackCandidates: NormalizedTrack[] = fallbackTracks.map((t) => ({
+      id: t.id,
+      isrc: t.attributes?.isrc,
+      title: t.attributes?.title || track.title,
+      artists:
+        (t.attributes?.artists?.map((a) => a.name).filter(Boolean) as string[]) || track.artists,
+      durationMs: (t.attributes?.duration || 0) * 1000,
+    }));
+
+    return findBestMatch(track, fallbackCandidates);
+  }
+
+  return null;
 }

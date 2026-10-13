@@ -27,21 +27,29 @@ export type SyncProgress = {
   removedSpotify: number;
   removedTidal: number;
   unmatchedTracks: Array<{ title: string; artists: string[]; side: string }>;
+  heldRemovals?: Array<{ title: string; artists: string[]; from: string }>;
 };
 
 export type SyncPlan = {
-  syncMode: "additive" | "mirror";
+  syncMode: string;
   addToSpotify: number;
   addToTidal: number;
   removeFromSpotify: number;
   removeFromTidal: number;
-  sampleAdds: Array<{ title: string; artists: string[]; to: "spotify" | "tidal" }>;
-  sampleRemoves: Array<{ title: string; artists: string[]; from: "spotify" | "tidal" }>;
+  sampleAdds: Array<{ title: string; artists: string[]; to: string }>;
+  sampleRemoves: Array<{ title: string; artists: string[]; from: string }>;
+  heldRemovals?: Array<{ title: string; artists: string[]; from: string }>;
+  sideAName: string;
+  sideBName: string;
 };
 
 type SideMap = Map<string, NormalizedTrack>;
 
-async function upsertMatch(key: string, track: NormalizedTrack, side: "spotify" | "tidal") {
+async function upsertMatch(
+  key: string,
+  track: NormalizedTrack,
+  side: "spotify" | "spotify_2" | "tidal",
+) {
   const db = await getDb();
   const existing = await db
     .select()
@@ -49,13 +57,14 @@ async function upsertMatch(key: string, track: NormalizedTrack, side: "spotify" 
     .where(eq(schema.trackMatches.canonicalKey, key))
     .limit(1);
   const row = existing[0];
+  const isSpotify = side === "spotify" || side === "spotify_2";
   const base = {
     canonicalKey: key,
     isrc: track.isrc || row?.isrc || null,
     title: track.title,
     artists: track.artists,
     durationMs: track.durationMs,
-    spotifyTrackId: side === "spotify" ? track.id : row?.spotifyTrackId || null,
+    spotifyTrackId: isSpotify ? track.id : row?.spotifyTrackId || null,
     tidalTrackId: side === "tidal" ? track.id : row?.tidalTrackId || null,
     updatedAt: new Date(),
   };
@@ -64,7 +73,7 @@ async function upsertMatch(key: string, track: NormalizedTrack, side: "spotify" 
       .update(schema.trackMatches)
       .set({
         ...base,
-        spotifyTrackId: side === "spotify" ? track.id : row.spotifyTrackId,
+        spotifyTrackId: isSpotify ? track.id : row.spotifyTrackId,
         tidalTrackId: side === "tidal" ? track.id : row.tidalTrackId,
       })
       .where(eq(schema.trackMatches.id, row.id));
@@ -76,7 +85,7 @@ async function upsertMatch(key: string, track: NormalizedTrack, side: "spotify" 
 async function resolveIdForSide(
   key: string,
   source: NormalizedTrack,
-  side: "spotify" | "tidal",
+  side: "spotify" | "spotify_2" | "tidal",
   onProgress?: (p: Partial<SyncProgress>) => Promise<void>,
 ): Promise<string | null> {
   const db = await getDb();
@@ -86,26 +95,72 @@ async function resolveIdForSide(
     .where(eq(schema.trackMatches.canonicalKey, key))
     .limit(1);
   const hit = cached[0];
-  if (side === "spotify" && hit?.spotifyTrackId) return hit.spotifyTrackId;
+
+  const isSpotify = side === "spotify" || side === "spotify_2";
+
+  // Between two Spotify accounts, if the track already has a Spotify track ID, it's directly valid!
+  if (isSpotify && hit?.spotifyTrackId) return hit.spotifyTrackId;
+  if (isSpotify && source.id && source.uri?.startsWith("spotify:track:")) return source.id;
   if (side === "tidal" && hit?.tidalTrackId) return hit.tidalTrackId;
+
+  // Negative Cache Check: If searched within last 7 days and was not found, avoid repeat search
+  if (isSpotify && hit?.spotifyNotFound === 1 && hit.spotifySearchedAt) {
+    const age = Date.now() - new Date(hit.spotifySearchedAt).getTime();
+    if (age < 7 * 24 * 60 * 60 * 1000) return null;
+  }
+  if (side === "tidal" && hit?.tidalNotFound === 1 && hit.tidalSearchedAt) {
+    const age = Date.now() - new Date(hit.tidalSearchedAt).getTime();
+    if (age < 7 * 24 * 60 * 60 * 1000) return null;
+  }
 
   await onProgress?.({
     currentTrack: `${source.title} — ${source.artists.join(", ")}`,
-    message: `MATCHING: ${source.title} by ${source.artists[0] || "Unknown"}`,
+    message: `Abgleich: ${source.title} von ${source.artists[0] || "Unbekannt"}`,
   });
 
-  const found =
-    side === "spotify" ? await searchSpotifyTrack(source) : await searchTidalTrack(source);
-  if (!found) return null;
+  const found = isSpotify
+    ? await searchSpotifyTrack(source, side as "spotify" | "spotify_2")
+    : await searchTidalTrack(source);
+
+  if (!found) {
+    // Record negative cache hit so future cron passes don't re-search needlessly
+    if (hit) {
+      await db
+        .update(schema.trackMatches)
+        .set({
+          [isSpotify ? "spotifyNotFound" : "tidalNotFound"]: 1,
+          [isSpotify ? "spotifySearchedAt" : "tidalSearchedAt"]: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.trackMatches.id, hit.id));
+    } else {
+      await db.insert(schema.trackMatches).values({
+        canonicalKey: key,
+        isrc: source.isrc || null,
+        title: source.title,
+        artists: source.artists,
+        durationMs: source.durationMs,
+        spotifyTrackId: isSpotify ? null : source.id,
+        tidalTrackId: side === "tidal" ? null : source.id,
+        spotifyNotFound: isSpotify ? 1 : 0,
+        tidalNotFound: side === "tidal" ? 1 : 0,
+        spotifySearchedAt: isSpotify ? new Date() : null,
+        tidalSearchedAt: side === "tidal" ? new Date() : null,
+      });
+    }
+    return null;
+  }
 
   const existing = hit;
   if (existing) {
     await db
       .update(schema.trackMatches)
       .set({
-        spotifyTrackId: side === "spotify" ? found.id : existing.spotifyTrackId,
+        spotifyTrackId: isSpotify ? found.id : existing.spotifyTrackId,
         tidalTrackId: side === "tidal" ? found.id : existing.tidalTrackId,
         isrc: existing.isrc || found.isrc || source.isrc || null,
+        spotifyNotFound: isSpotify ? 0 : existing.spotifyNotFound,
+        tidalNotFound: side === "tidal" ? 0 : existing.tidalNotFound,
         updatedAt: new Date(),
       })
       .where(eq(schema.trackMatches.id, existing.id));
@@ -116,7 +171,7 @@ async function resolveIdForSide(
       title: source.title,
       artists: source.artists,
       durationMs: source.durationMs,
-      spotifyTrackId: side === "spotify" ? found.id : source.id,
+      spotifyTrackId: isSpotify ? found.id : source.id,
       tidalTrackId: side === "tidal" ? found.id : source.id,
     });
   }
@@ -126,7 +181,7 @@ async function resolveIdForSide(
 
 async function toSideMap(
   tracks: NormalizedTrack[],
-  side: "spotify" | "tidal",
+  side: "spotify" | "spotify_2" | "tidal",
 ): Promise<SideMap> {
   const map: SideMap = new Map();
   for (const t of tracks) {
@@ -137,7 +192,29 @@ async function toSideMap(
   return map;
 }
 
-async function loadReconcileState(pairId: string) {
+export type ReconcileState = {
+  db: Awaited<ReturnType<typeof getDb>>;
+  pair: typeof schema.playlistPairs.$inferSelect;
+  isSpotifySpotify: boolean;
+  sideAAccount: "spotify";
+  sideBAccount: "spotify_2" | "tidal";
+  sideAName: string;
+  sideBName: string;
+  syncMode: string;
+  sideAMap: SideMap;
+  sideBMap: SideMap;
+  desired: Set<string>;
+  addToSideA: string[];
+  addToSideB: string[];
+  removeFromSideA: string[];
+  removeFromSideB: string[];
+  heldRemovals: Array<{ title: string; artists: string[]; from: string }>;
+};
+
+async function loadReconcileState(
+  pairId: string,
+  opts?: { forceMirror?: boolean },
+): Promise<ReconcileState> {
   const db = await getDb();
   const pairs = await db
     .select()
@@ -147,13 +224,29 @@ async function loadReconcileState(pairId: string) {
   const pair = pairs[0];
   if (!pair) throw new Error("Playlist pair not found");
 
-  const [spotifyTracks, tidalTracks] = await Promise.all([
-    getSpotifyPlaylistTracks(pair.spotifyPlaylistId),
-    getTidalPlaylistTracks(pair.tidalPlaylistId),
-  ]);
+  const isSpotifySpotify = pair.pairType === "spotify_spotify";
+  const sideAAccount = "spotify" as const;
+  const sideBAccount = (isSpotifySpotify ? "spotify_2" : "tidal") as "spotify_2" | "tidal";
+  const sideAName = "Spotify (Hauptaccount)";
+  const sideBName = isSpotifySpotify ? "Spotify (Account 2)" : "Tidal";
 
-  const spotifyMap = await toSideMap(spotifyTracks, "spotify");
-  const tidalMap = await toSideMap(tidalTracks, "tidal");
+  const sideAPlaylistId = pair.spotifyPlaylistId;
+  const sideBPlaylistId = isSpotifySpotify ? pair.spotify2PlaylistId : pair.tidalPlaylistId;
+
+  if (!sideAPlaylistId) {
+    throw new Error("Quelle (Spotify 1) Playlist-ID fehlt");
+  }
+  if (!sideBPlaylistId) {
+    throw new Error(`Ziel (${sideBName}) Playlist-ID fehlt`);
+  }
+
+  // Load tracks from both sides concurrently
+  const [sideATracks, sideBTracks] = await Promise.all([
+    getSpotifyPlaylistTracks(sideAPlaylistId, "spotify"),
+    isSpotifySpotify
+      ? getSpotifyPlaylistTracks(sideBPlaylistId, "spotify_2")
+      : getTidalPlaylistTracks(sideBPlaylistId),
+  ]);
 
   const snapRows = await db
     .select()
@@ -163,95 +256,162 @@ async function loadReconcileState(pairId: string) {
     .limit(1);
   const snapshot = new Set(snapRows[0]?.trackKeys || []);
 
-  const spotifyKeys = new Set(spotifyMap.keys());
-  const tidalKeys = new Set(tidalMap.keys());
+  // SAFETY RAIL 1: Empty-Snapshot / Read-Collapse Guard (SongMirror)
+  // If either side returns 0 tracks while the other side or previous snapshot had > 3 tracks, fail closed!
+  if (sideATracks.length === 0 && (sideBTracks.length > 3 || snapshot.size > 3)) {
+    throw new Error(
+      "Sicherheitsabbruch: Leere Trackliste auf Seite A (Spotify) erhalten. Möglicher API-Glitch. Sync zum Schutz gestoppt.",
+    );
+  }
+  if (sideBTracks.length === 0 && (sideATracks.length > 3 || snapshot.size > 3)) {
+    throw new Error(
+      `Sicherheitsabbruch: Leere Trackliste auf ${sideBName} erhalten. Möglicher API-Glitch. Sync zum Schutz gestoppt.`,
+    );
+  }
 
-  const spotifyAdded = [...spotifyKeys].filter((k) => !snapshot.has(k));
-  const spotifyRemoved = [...snapshot].filter((k) => !spotifyKeys.has(k));
-  const tidalAdded = [...tidalKeys].filter((k) => !snapshot.has(k));
-  const tidalRemoved = [...snapshot].filter((k) => !tidalKeys.has(k));
+  const sideAMap = await toSideMap(sideATracks, sideAAccount);
+  const sideBMap = await toSideMap(sideBTracks, sideBAccount);
+
+  const sideAKeys = new Set(sideAMap.keys());
+  const sideBKeys = new Set(sideBMap.keys());
+
+  const sideAAdded = [...sideAKeys].filter((k) => !snapshot.has(k));
+  const sideARemoved = [...snapshot].filter((k) => !sideAKeys.has(k));
+  const sideBAdded = [...sideBKeys].filter((k) => !snapshot.has(k));
+  const sideBRemoved = [...snapshot].filter((k) => !sideBKeys.has(k));
 
   const desired = new Set(snapshot);
-  for (const k of spotifyRemoved) desired.delete(k);
-  for (const k of tidalRemoved) desired.delete(k);
-  for (const k of spotifyAdded) desired.add(k);
-  for (const k of tidalAdded) desired.add(k);
+  for (const k of sideARemoved) desired.delete(k);
+  for (const k of sideBRemoved) desired.delete(k);
+  for (const k of sideAAdded) desired.add(k);
+  for (const k of sideBAdded) desired.add(k);
 
   if (snapshot.size === 0) {
     desired.clear();
-    for (const k of spotifyKeys) desired.add(k);
-    for (const k of tidalKeys) desired.add(k);
+    for (const k of sideAKeys) desired.add(k);
+    for (const k of sideBKeys) desired.add(k);
   }
 
-  const syncMode = (pair.syncMode === "mirror" ? "mirror" : "additive") as
-    | "additive"
-    | "mirror";
+  const syncMode = pair.syncMode || "additive";
 
-  let addToSpotify = [...desired].filter((k) => !spotifyKeys.has(k));
-  let addToTidal = [...desired].filter((k) => !tidalKeys.has(k));
-  let removeFromSpotify = [...spotifyKeys].filter((k) => !desired.has(k));
-  let removeFromTidal = [...tidalKeys].filter((k) => !desired.has(k));
+  let addToSideA: string[] = [];
+  let addToSideB: string[] = [];
+  let removeFromSideA: string[] = [];
+  let removeFromSideB: string[] = [];
 
   if (syncMode === "additive") {
-    // Never remove; desired stays as union of both sides + snapshot adds
-    removeFromSpotify = [];
-    removeFromTidal = [];
-    const union = new Set([...spotifyKeys, ...tidalKeys]);
-    addToSpotify = [...union].filter((k) => !spotifyKeys.has(k));
-    addToTidal = [...union].filter((k) => !tidalKeys.has(k));
+    // Additive: Union of both sides. Missing tracks added to both sides. Never delete anything.
+    const union = new Set([...sideAKeys, ...sideBKeys]);
+    addToSideA = [...union].filter((k) => !sideAKeys.has(k));
+    addToSideB = [...union].filter((k) => !sideBKeys.has(k));
+    removeFromSideA = [];
+    removeFromSideB = [];
+  } else if (syncMode === "one_way_a_to_b") {
+    // Master-Replica: Side A (Spotify) is master. Side B follows 1:1. Side A never modified.
+    addToSideA = [];
+    removeFromSideA = [];
+    addToSideB = [...sideAKeys].filter((k) => !sideBKeys.has(k));
+    removeFromSideB = [...sideBKeys].filter((k) => !sideAKeys.has(k));
+  } else if (syncMode === "one_way_b_to_a") {
+    // Master-Replica: Side B is master. Side A follows 1:1. Side B never modified.
+    addToSideB = [];
+    removeFromSideB = [];
+    addToSideA = [...sideBKeys].filter((k) => !sideAKeys.has(k));
+    removeFromSideA = [...sideAKeys].filter((k) => !sideBKeys.has(k));
+  } else {
+    // Mirror: Two-way mirror (additions & deletions propagate)
+    addToSideA = [...desired].filter((k) => !sideAKeys.has(k));
+    addToSideB = [...desired].filter((k) => !sideBKeys.has(k));
+    removeFromSideA = [...sideAKeys].filter((k) => !desired.has(k));
+    removeFromSideB = [...sideBKeys].filter((k) => !desired.has(k));
+  }
+
+  // SAFETY RAIL 2: MAX_REMOVALS Cap / Notbremse (SongMirror)
+  // If more than 20 tracks would be removed at once and user hasn't explicitly force-confirmed,
+  // hold the removals back to prevent accidental mass deletion.
+  const heldRemovals: Array<{ title: string; artists: string[]; from: string }> = [];
+  const totalRemovals = removeFromSideA.length + removeFromSideB.length;
+  const isCapped = totalRemovals > 20 && !opts?.forceMirror;
+
+  if (isCapped) {
+    for (const key of removeFromSideA) {
+      const t = sideAMap.get(key);
+      if (t) heldRemovals.push({ title: t.title, artists: t.artists, from: sideAName });
+    }
+    for (const key of removeFromSideB) {
+      const t = sideBMap.get(key);
+      if (t) heldRemovals.push({ title: t.title, artists: t.artists, from: sideBName });
+    }
+    // Suppress deletions for this automated run
+    removeFromSideA = [];
+    removeFromSideB = [];
   }
 
   return {
     db,
     pair,
+    isSpotifySpotify,
+    sideAAccount,
+    sideBAccount,
+    sideAName,
+    sideBName,
     syncMode,
-    spotifyMap,
-    tidalMap,
+    sideAMap,
+    sideBMap,
     desired:
       syncMode === "additive"
-        ? new Set([...spotifyKeys, ...tidalKeys])
-        : desired,
-    addToSpotify,
-    addToTidal,
-    removeFromSpotify,
-    removeFromTidal,
+        ? new Set([...sideAKeys, ...sideBKeys])
+        : syncMode === "one_way_a_to_b"
+          ? sideAKeys
+          : syncMode === "one_way_b_to_a"
+            ? sideBKeys
+            : desired,
+    addToSideA,
+    addToSideB,
+    removeFromSideA,
+    removeFromSideB,
+    heldRemovals,
   };
 }
 
 export async function previewPlaylistPair(pairId: string): Promise<SyncPlan> {
-  const state = await loadReconcileState(pairId);
+  const state = await loadReconcileState(pairId, { forceMirror: true });
   const sampleAdds: SyncPlan["sampleAdds"] = [];
-  for (const key of state.addToSpotify.slice(0, 100)) {
-    const t = state.tidalMap.get(key);
-    if (t) sampleAdds.push({ title: t.title, artists: t.artists, to: "spotify" });
+  for (const key of state.addToSideA.slice(0, 100)) {
+    const t = state.sideBMap.get(key);
+    if (t) sampleAdds.push({ title: t.title, artists: t.artists, to: state.sideAName });
   }
-  for (const key of state.addToTidal.slice(0, 100)) {
-    const t = state.spotifyMap.get(key);
-    if (t) sampleAdds.push({ title: t.title, artists: t.artists, to: "tidal" });
+  for (const key of state.addToSideB.slice(0, 100)) {
+    const t = state.sideAMap.get(key);
+    if (t) sampleAdds.push({ title: t.title, artists: t.artists, to: state.sideBName });
   }
   const sampleRemoves: SyncPlan["sampleRemoves"] = [];
-  for (const key of state.removeFromSpotify.slice(0, 100)) {
-    const t = state.spotifyMap.get(key);
-    if (t) sampleRemoves.push({ title: t.title, artists: t.artists, from: "spotify" });
+  for (const key of state.removeFromSideA.slice(0, 100)) {
+    const t = state.sideAMap.get(key);
+    if (t) sampleRemoves.push({ title: t.title, artists: t.artists, from: state.sideAName });
   }
-  for (const key of state.removeFromTidal.slice(0, 100)) {
-    const t = state.tidalMap.get(key);
-    if (t) sampleRemoves.push({ title: t.title, artists: t.artists, from: "tidal" });
+  for (const key of state.removeFromSideB.slice(0, 100)) {
+    const t = state.sideBMap.get(key);
+    if (t) sampleRemoves.push({ title: t.title, artists: t.artists, from: state.sideBName });
   }
   return {
     syncMode: state.syncMode,
-    addToSpotify: state.addToSpotify.length,
-    addToTidal: state.addToTidal.length,
-    removeFromSpotify: state.removeFromSpotify.length,
-    removeFromTidal: state.removeFromTidal.length,
+    addToSpotify: state.addToSideA.length,
+    addToTidal: state.addToSideB.length,
+    removeFromSpotify: state.removeFromSideA.length,
+    removeFromTidal: state.removeFromSideB.length,
     sampleAdds,
     sampleRemoves,
+    heldRemovals: state.heldRemovals,
+    sideAName: state.sideAName,
+    sideBName: state.sideBName,
   };
 }
 
 export async function syncPlaylistPair(
   pairId: string,
   onProgress?: (p: SyncProgress) => Promise<void>,
+  opts?: { forceMirror?: boolean },
 ): Promise<SyncProgress> {
   const progress: SyncProgress = {
     total: 0,
@@ -263,45 +423,65 @@ export async function syncPlaylistPair(
     removedSpotify: 0,
     removedTidal: 0,
     unmatchedTracks: [],
-    message: "Loading playlists…",
+    heldRemovals: [],
+    message: "Lade Playlists…",
   };
   await onProgress?.(progress);
 
+  const state = await loadReconcileState(pairId, opts);
   const {
     db,
     pair,
+    isSpotifySpotify,
+    sideAAccount,
+    sideBAccount,
+    sideAName,
+    sideBName,
     syncMode,
-    spotifyMap,
-    tidalMap,
+    sideAMap,
+    sideBMap,
     desired,
-    addToSpotify,
-    addToTidal,
-    removeFromSpotify,
-    removeFromTidal,
-  } = await loadReconcileState(pairId);
+    addToSideA,
+    addToSideB,
+    removeFromSideA,
+    removeFromSideB,
+    heldRemovals,
+  } = state;
+
+  progress.heldRemovals = heldRemovals;
 
   await db
     .update(schema.playlistPairs)
-    .set({ status: "syncing", updatedAt: new Date(), lastError: null })
+    .set({
+      status: "syncing",
+      updatedAt: new Date(),
+      lastError: null,
+      heldRemovals,
+    })
     .where(eq(schema.playlistPairs.id, pairId));
 
   progress.total =
-    addToSpotify.length + removeFromSpotify.length + addToTidal.length + removeFromTidal.length;
+    addToSideA.length + removeFromSideA.length + addToSideB.length + removeFromSideB.length;
   progress.message =
-    syncMode === "additive" ? "Additive sync…" : "Mirror sync…";
+    syncMode === "additive"
+      ? "Additive Sync…"
+      : syncMode.startsWith("one_way")
+        ? "Einweg-Sync…"
+        : "Mirror Sync…";
   await onProgress?.(progress);
 
-  const spotifyAddIds: string[] = [];
-  for (const key of addToSpotify) {
-    const source = tidalMap.get(key);
+  // 1. Resolve and add to Side A (Spotify 1)
+  const sideAAddIds: string[] = [];
+  for (const key of addToSideA) {
+    const source = sideBMap.get(key);
     if (!source) continue;
-    const id = await resolveIdForSide(key, source, "spotify", async (p) => {
+    const id = await resolveIdForSide(key, source, sideAAccount, async (p) => {
       Object.assign(progress, p);
       await onProgress?.(progress);
     });
     progress.processed++;
     if (id) {
-      spotifyAddIds.push(id);
+      sideAAddIds.push(id);
       progress.matched++;
       progress.addedSpotify++;
     } else {
@@ -309,53 +489,75 @@ export async function syncPlaylistPair(
       progress.unmatchedTracks.push({
         title: source.title,
         artists: source.artists,
-        side: "tidal→spotify",
+        side: `${sideBName}→${sideAName}`,
       });
     }
     await onProgress?.(progress);
   }
-  await addTracksToSpotifyPlaylist(pair.spotifyPlaylistId, spotifyAddIds);
+  if (sideAAddIds.length && pair.spotifyPlaylistId) {
+    await addTracksToSpotifyPlaylist(pair.spotifyPlaylistId, sideAAddIds, "spotify");
+  }
 
-  const tidalAddIds: string[] = [];
-  for (const key of addToTidal) {
-    const source = spotifyMap.get(key);
+  // 2. Resolve and add to Side B (Tidal or Spotify 2)
+  const sideBAddIds: string[] = [];
+  for (const key of addToSideB) {
+    const source = sideAMap.get(key);
     if (!source) continue;
-    const id = await resolveIdForSide(key, source, "tidal", async (p) => {
+    const id = await resolveIdForSide(key, source, sideBAccount, async (p) => {
       Object.assign(progress, p);
       await onProgress?.(progress);
     });
     progress.processed++;
     if (id) {
-      tidalAddIds.push(id);
+      sideBAddIds.push(id);
       progress.matched++;
-      progress.addedTidal++;
+      if (isSpotifySpotify) progress.addedSpotify++;
+      else progress.addedTidal++;
     } else {
       progress.unmatched++;
       progress.unmatchedTracks.push({
         title: source.title,
         artists: source.artists,
-        side: "spotify→tidal",
+        side: `${sideAName}→${sideBName}`,
       });
     }
     await onProgress?.(progress);
   }
-  await addTracksToTidalPlaylist(pair.tidalPlaylistId, tidalAddIds);
 
-  const spotifyRemoveIds = removeFromSpotify
-    .map((k) => spotifyMap.get(k)?.id)
+  if (sideBAddIds.length) {
+    if (isSpotifySpotify && pair.spotify2PlaylistId) {
+      await addTracksToSpotifyPlaylist(pair.spotify2PlaylistId, sideBAddIds, "spotify_2");
+    } else if (pair.tidalPlaylistId) {
+      await addTracksToTidalPlaylist(pair.tidalPlaylistId, sideBAddIds);
+    }
+  }
+
+  // 3. Remove from Side A (Spotify 1)
+  const sideARemoveIds = removeFromSideA
+    .map((k) => sideAMap.get(k)?.id)
     .filter(Boolean) as string[];
-  await removeTracksFromSpotifyPlaylist(pair.spotifyPlaylistId, spotifyRemoveIds);
-  progress.removedSpotify = spotifyRemoveIds.length;
-  progress.processed += spotifyRemoveIds.length;
+  if (sideARemoveIds.length && pair.spotifyPlaylistId) {
+    await removeTracksFromSpotifyPlaylist(pair.spotifyPlaylistId, sideARemoveIds, "spotify");
+  }
+  progress.removedSpotify = sideARemoveIds.length;
+  progress.processed += sideARemoveIds.length;
 
-  const tidalRemoveIds = removeFromTidal
-    .map((k) => tidalMap.get(k)?.id)
+  // 4. Remove from Side B (Tidal or Spotify 2)
+  const sideBRemoveIds = removeFromSideB
+    .map((k) => sideBMap.get(k)?.id)
     .filter(Boolean) as string[];
-  await removeTracksFromTidalPlaylist(pair.tidalPlaylistId, tidalRemoveIds);
-  progress.removedTidal = tidalRemoveIds.length;
-  progress.processed += tidalRemoveIds.length;
+  if (sideBRemoveIds.length) {
+    if (isSpotifySpotify && pair.spotify2PlaylistId) {
+      await removeTracksFromSpotifyPlaylist(pair.spotify2PlaylistId, sideBRemoveIds, "spotify_2");
+    } else if (pair.tidalPlaylistId) {
+      await removeTracksFromTidalPlaylist(pair.tidalPlaylistId, sideBRemoveIds);
+    }
+  }
+  if (isSpotifySpotify) progress.removedSpotify += sideBRemoveIds.length;
+  else progress.removedTidal = sideBRemoveIds.length;
+  progress.processed += sideBRemoveIds.length;
 
-  // Desired snapshot excludes unmatched that never landed on both sides
+  // Final desired snapshot excludes unmatched
   const finalKeys = [...desired].filter((k) => {
     const failed = progress.unmatchedTracks.some(
       (u) => canonicalKey({ title: u.title, artists: u.artists, durationMs: 0 }) === k,
@@ -363,7 +565,6 @@ export async function syncPlaylistPair(
     return !failed;
   });
 
-  // Rebuild from actual post-sync membership keys that we intended
   await db.insert(schema.snapshots).values({
     pairId,
     trackKeys: finalKeys,
@@ -376,6 +577,11 @@ export async function syncPlaylistPair(
       ? 100
       : Math.min(100, Math.round((progress.processed / Math.max(progress.total, 1)) * 100));
 
+  let finalMessage = "Sync erfolgreich";
+  if (heldRemovals.length > 0) {
+    finalMessage = `Sync abgeschlossen (${heldRemovals.length} Löschungen von Notbremse zurückgehalten)`;
+  }
+
   await db
     .update(schema.playlistPairs)
     .set({
@@ -385,19 +591,20 @@ export async function syncPlaylistPair(
       matchedCount: Math.max(0, matchedCount),
       unmatchedCount: progress.unmatched,
       unmatchedTracks: progress.unmatchedTracks,
+      heldRemovals,
       progressPercent: progressPercent || 100,
       updatedAt: new Date(),
-      lastError: null,
+      lastError: heldRemovals.length > 0 ? `${heldRemovals.length} Löschungen von Notbremse zurückgehalten` : null,
     })
     .where(eq(schema.playlistPairs.id, pairId));
 
-  progress.message = "Sync complete";
+  progress.message = finalMessage;
   progress.currentTrack = undefined;
   await onProgress?.(progress);
   return progress;
 }
 
-export async function runSyncJob(jobId: string) {
+export async function runSyncJob(jobId: string, opts?: { forceMirror?: boolean }) {
   const db = await getDb();
   const jobs = await db.select().from(schema.syncJobs).where(eq(schema.syncJobs.id, jobId)).limit(1);
   const job = jobs[0];
@@ -409,31 +616,35 @@ export async function runSyncJob(jobId: string) {
     .where(eq(schema.syncJobs.id, jobId));
 
   try {
-    const result = await syncPlaylistPair(job.pairId, async (p) => {
-      await db
-        .update(schema.syncJobs)
-        .set({
-          currentTrack: p.currentTrack || null,
-          message: p.message || null,
-          total: p.total,
-          processed: p.processed,
-          matched: p.matched,
-          unmatched: p.unmatched,
-          addedSpotify: p.addedSpotify,
-          addedTidal: p.addedTidal,
-          removedSpotify: p.removedSpotify,
-          removedTidal: p.removedTidal,
-          unmatchedTracks: p.unmatchedTracks,
-        })
-        .where(eq(schema.syncJobs.id, jobId));
-    });
+    const result = await syncPlaylistPair(
+      job.pairId,
+      async (p) => {
+        await db
+          .update(schema.syncJobs)
+          .set({
+            currentTrack: p.currentTrack || null,
+            message: p.message || null,
+            total: p.total,
+            processed: p.processed,
+            matched: p.matched,
+            unmatched: p.unmatched,
+            addedSpotify: p.addedSpotify,
+            addedTidal: p.addedTidal,
+            removedSpotify: p.removedSpotify,
+            removedTidal: p.removedTidal,
+            unmatchedTracks: p.unmatchedTracks,
+          })
+          .where(eq(schema.syncJobs.id, jobId));
+      },
+      opts,
+    );
 
     await db
       .update(schema.syncJobs)
       .set({
         status: "completed",
         finishedAt: new Date(),
-        message: result.message || "Sync complete",
+        message: result.message || "Sync abgeschlossen",
         total: result.total,
         processed: result.processed,
         matched: result.matched,
@@ -447,7 +658,7 @@ export async function runSyncJob(jobId: string) {
       })
       .where(eq(schema.syncJobs.id, jobId));
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Sync failed";
+    const message = err instanceof Error ? err.message : "Sync fehlgeschlagen";
     await db
       .update(schema.syncJobs)
       .set({

@@ -34,18 +34,20 @@ export async function GET() {
             pairs.reduce((sum, p) => sum + (p.progressPercent || 0), 0) / totalPlaylists,
           );
 
+    const spotify1Ready =
+      credentials.spotify.configured && Boolean(connections.spotify.connected);
+    const spotify2Connected = Boolean(connections.spotify_2?.connected);
+    const tidalReady = credentials.tidal.configured && Boolean(connections.tidal.connected);
+
     const setup = {
       spotifyKeys: credentials.spotify.configured,
       tidalKeys: credentials.tidal.configured,
       spotifyConnected: Boolean(connections.spotify.connected),
+      spotify2Connected,
       tidalConnected: Boolean(connections.tidal.connected),
       hasPairs: pairs.length > 0,
       pinDisabled: isAppPinDisabled(),
-      ready:
-        credentials.spotify.configured &&
-        credentials.tidal.configured &&
-        Boolean(connections.spotify.connected) &&
-        Boolean(connections.tidal.connected),
+      ready: spotify1Ready && (tidalReady || spotify2Connected),
     };
 
     return NextResponse.json({

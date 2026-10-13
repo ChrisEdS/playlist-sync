@@ -51,10 +51,17 @@ export async function getDecryptedTokens(provider: ServiceProvider): Promise<Tok
 }
 
 export async function connectionStatus() {
-  const [spotify, tidal] = await Promise.all([getAccount("spotify"), getAccount("tidal")]);
+  const [spotify, spotify2, tidal] = await Promise.all([
+    getAccount("spotify"),
+    getAccount("spotify_2"),
+    getAccount("tidal"),
+  ]);
   return {
     spotify: spotify
       ? { connected: true, displayName: spotify.displayName, userId: spotify.providerUserId }
+      : { connected: false },
+    spotify_2: spotify2
+      ? { connected: true, displayName: spotify2.displayName, userId: spotify2.providerUserId }
       : { connected: false },
     tidal: tidal
       ? { connected: true, displayName: tidal.displayName, userId: tidal.providerUserId }

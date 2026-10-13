@@ -174,6 +174,7 @@ export default function DashboardPage() {
         {/* Playlist Pairs List */}
         <div className="mt-6 space-y-3.5">
           {pairs.map((pair, i) => {
+            const isSpotifySpotify = pair.pairType === "spotify_spotify";
             const isPairActive =
               pair.status === "syncing" ||
               (data?.activeJob && data.activeJob.pairId === pair.id);
@@ -184,11 +185,9 @@ export default function DashboardPage() {
               pair.spotifyPlaylistId,
               pair.spotifyPlaylistUrl,
             );
-            const tidalUrl = getPlaylistWebUrl(
-              "tidal",
-              pair.tidalPlaylistId,
-              pair.tidalPlaylistUrl,
-            );
+            const sideBUrl = isSpotifySpotify
+              ? getPlaylistWebUrl("spotify", pair.spotify2PlaylistId, pair.spotify2PlaylistUrl)
+              : getPlaylistWebUrl("tidal", pair.tidalPlaylistId, pair.tidalPlaylistUrl);
 
             return (
               <article
@@ -227,7 +226,11 @@ export default function DashboardPage() {
                         {pair.songCount} {pair.songCount === 1 ? "Song" : "Songs"}
                       </span>
                       <span className="rounded-full bg-black/40 px-2 py-0.5 text-[10px] text-[var(--muted)] uppercase tracking-wider">
-                        {pair.syncMode === "mirror" ? "Mirror" : "Additive"}
+                        {pair.syncMode === "mirror"
+                          ? "Mirror"
+                          : pair.syncMode?.startsWith("one_way")
+                            ? "Einweg"
+                            : "Additive"}
                       </span>
                       {isPairActive ? (
                         <span className="inline-flex items-center gap-1.5 text-xs text-[var(--spotify)] font-medium">
@@ -249,20 +252,24 @@ export default function DashboardPage() {
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 hover:text-[var(--spotify)] transition"
-                          title="Auf Spotify öffnen ↗"
+                          title={`Auf ${isSpotifySpotify ? "Spotify (Account 1)" : "Spotify"} öffnen ↗`}
                         >
-                          <ServiceBadge service="spotify" />
+                          <ServiceBadge service="spotify" label={isSpotifySpotify ? "Spotify 1" : "Spotify"} />
                           <span className="text-[11px] underline-offset-2 hover:underline">Öffnen ↗</span>
                         </a>
                         <span>·</span>
                         <a
-                          href={tidalUrl}
+                          href={sideBUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex items-center gap-1 hover:text-[var(--tidal)] transition"
-                          title="Auf Tidal öffnen ↗"
+                          className="inline-flex items-center gap-1 hover:text-white transition"
+                          title={`Auf ${isSpotifySpotify ? "Spotify (Account 2)" : "Tidal"} öffnen ↗`}
                         >
-                          <ServiceBadge service="tidal" />
+                          {isSpotifySpotify ? (
+                            <ServiceBadge service="spotify_2" label="Spotify 2" />
+                          ) : (
+                            <ServiceBadge service="tidal" />
+                          )}
                           <span className="text-[11px] underline-offset-2 hover:underline">Öffnen ↗</span>
                         </a>
                       </div>
@@ -271,7 +278,16 @@ export default function DashboardPage() {
                       <span>Zuletzt: {formatRelativeTime(pair.lastSyncedAt)}</span>
                     </div>
 
-                    {pair.lastError ? (
+                    {pair.heldRemovals && pair.heldRemovals.length > 0 ? (
+                      <p className="mt-1.5 text-xs text-[var(--accent)] font-medium">
+                        Notbremse aktiv: {pair.heldRemovals.length} Löschungen gestoppt —{" "}
+                        <Link href={`/pairs/${pair.id}`} className="underline">
+                          Überprüfen
+                        </Link>
+                      </p>
+                    ) : null}
+
+                    {pair.lastError && (!pair.heldRemovals || pair.heldRemovals.length === 0) ? (
                       <p className="mt-1.5 text-xs text-[var(--danger)] line-clamp-1">
                         {pair.lastError}
                       </p>

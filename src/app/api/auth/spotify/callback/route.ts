@@ -17,14 +17,19 @@ export async function GET(req: Request) {
   }
 
   const stored = await consumeOAuthState();
-  if (!code || !stored || stored.provider !== "spotify" || stored.state !== state) {
+  if (
+    !code ||
+    !stored ||
+    (stored.provider !== "spotify" && stored.provider !== "spotify_2") ||
+    stored.state !== state
+  ) {
     return NextResponse.redirect(`${base}/settings?error=spotify_state`);
   }
 
   try {
     const tokens = await exchangeSpotifyCode(code);
-    await saveTokens("spotify", tokens);
-    return NextResponse.redirect(`${base}/settings?connected=spotify`);
+    await saveTokens(stored.provider, tokens);
+    return NextResponse.redirect(`${base}/settings?connected=${stored.provider}`);
   } catch (e) {
     const message = e instanceof Error ? e.message : "spotify_oauth_failed";
     return NextResponse.redirect(`${base}/settings?error=${encodeURIComponent(message)}`);

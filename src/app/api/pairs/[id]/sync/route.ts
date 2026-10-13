@@ -9,10 +9,13 @@ export const maxDuration = 300;
 
 type Params = { params: Promise<{ id: string }> };
 
-export async function POST(_req: Request, { params }: Params) {
+export async function POST(req: Request, { params }: Params) {
   const denied = await requireAuth();
   if (denied) return denied;
   const { id } = await params;
+  const body = (await req.json().catch(() => ({}))) as { forceMirror?: boolean };
+  const forceMirror = Boolean(body?.forceMirror);
+
   const db = await getDb();
   const pairs = await db
     .select()
@@ -27,12 +30,12 @@ export async function POST(_req: Request, { params }: Params) {
       pairId: id,
       type: "sync",
       status: "queued",
-      message: "Queued…",
+      message: forceMirror ? "Eingereiht (Mirror erzwungen)…" : "Eingereiht…",
     })
     .returning();
 
   waitUntil(
-    runSyncJob(job.id).catch((err) => {
+    runSyncJob(job.id, { forceMirror }).catch((err) => {
       console.error("Sync job failed", err);
     }),
   );

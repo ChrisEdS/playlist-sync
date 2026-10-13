@@ -20,13 +20,18 @@ export default function NewPairPage() {
   const router = useRouter();
   const { data: status } = useStatus(10_000);
   const canPair = Boolean(status?.setup?.ready);
-  const [source, setSource] = useState<"spotify" | "tidal">("spotify");
+  const hasSpotify2 = Boolean(status?.connections.spotify_2?.connected);
+
+  const [pairType, setPairType] = useState<"spotify_tidal" | "spotify_spotify">("spotify_tidal");
+  const [source, setSource] = useState<"spotify" | "spotify_2" | "tidal">("spotify");
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [targets, setTargets] = useState<Playlist[]>([]);
   const [selected, setSelected] = useState("");
   const [targetId, setTargetId] = useState("");
   const [createTarget, setCreateTarget] = useState(true);
-  const [syncMode, setSyncMode] = useState<"additive" | "mirror">("additive");
+  const [syncMode, setSyncMode] = useState<
+    "additive" | "mirror" | "one_way_a_to_b" | "one_way_b_to_a"
+  >("additive");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [batching, setBatching] = useState(false);
@@ -37,7 +42,21 @@ export default function NewPairPage() {
   const [view, setView] = useState<"list" | "grid">("list");
   const [filterBoth, setFilterBoth] = useState(false);
 
-  const otherService = source === "spotify" ? "tidal" : "spotify";
+  // Determine other service based on pairType and source
+  const otherService: "spotify" | "spotify_2" | "tidal" = useMemo(() => {
+    if (pairType === "spotify_spotify") {
+      return source === "spotify" ? "spotify_2" : "spotify";
+    }
+    return source === "spotify" ? "tidal" : "spotify";
+  }, [pairType, source]);
+
+  // Adjust source if pairType changes
+  function switchPairType(newType: "spotify_tidal" | "spotify_spotify") {
+    setPairType(newType);
+    setSource("spotify");
+    setSelected("");
+    setTargetId("");
+  }
 
   // Map of playlists that are already part of a pair
   const pairedMap = useMemo(() => {
@@ -45,6 +64,7 @@ export default function NewPairPage() {
     for (const p of status?.pairs || []) {
       if (p.spotifyPlaylistId) map.set(p.spotifyPlaylistId, { id: p.id, name: p.name });
       if (p.tidalPlaylistId) map.set(p.tidalPlaylistId, { id: p.id, name: p.name });
+      if (p.spotify2PlaylistId) map.set(p.spotify2PlaylistId, { id: p.id, name: p.name });
     }
     return map;
   }, [status?.pairs]);
@@ -61,20 +81,26 @@ export default function NewPairPage() {
       setLoading(true);
       setError(null);
       try {
-        const [srcRes, tgtRes] = await Promise.all([
-          fetch(`/api/playlists/${source}`),
-          fetch(`/api/playlists/${otherService}`),
-        ]);
+        const srcUrl =
+          source === "tidal"
+            ? "/api/playlists/tidal"
+            : `/api/playlists/spotify?account=${source}`;
+        const tgtUrl =
+          otherService === "tidal"
+            ? "/api/playlists/tidal"
+            : `/api/playlists/spotify?account=${otherService}`;
+
+        const [srcRes, tgtRes] = await Promise.all([fetch(srcUrl), fetch(tgtUrl)]);
         const srcJson = await srcRes.json().catch(() => ({}));
         const tgtJson = await tgtRes.json().catch(() => ({}));
         if (!srcRes.ok) {
           throw new Error(
-            formatApiError(srcJson.error || `Playlists von ${source} konnten nicht geladen werden`),
+            formatApiError(srcJson.error || `Playlists von ${sourceLabel(source)} konnten nicht geladen werden`),
           );
         }
         if (!tgtRes.ok) {
           throw new Error(
-            formatApiError(tgtJson.error || `Playlists von ${otherService} konnten nicht geladen werden`),
+            formatApiError(tgtJson.error || `Playlists von ${sourceLabel(otherService)} konnten nicht geladen werden`),
           );
         }
         if (cancelled) return;
@@ -116,7 +142,6 @@ export default function NewPairPage() {
 
   const selectedPlaylist = playlists.find((p) => p.id === selected) || null;
   const selectedTarget = targets.find((t) => t.id === targetId) || null;
-  const selectedMatch = selected ? matchBySourceId.get(selected) : undefined;
   const liveTargetHint = useMemo(() => {
     if (!selectedPlaylist) return null;
     return findBestTargetMatch(selectedPlaylist, targets);
@@ -153,7 +178,6 @@ export default function NewPairPage() {
     }
     if (q) list = list.filter((p) => p.name.toLowerCase().includes(q));
 
-    // Sort: Unpaired matches first, then normal playlists, then already paired
     return [...list].sort((a, b) => {
       const aPaired = pairedMap.has(a.id) ? 1 : 0;
       const bPaired = pairedMap.has(b.id) ? 1 : 0;
@@ -167,7 +191,6 @@ export default function NewPairPage() {
     });
   }, [playlists, query, filterBoth, crossMatches, matchBySourceId, pairedMap]);
 
-  // Filtered targets for target picker
   const filteredTargets = useMemo(() => {
     const tq = targetQuery.trim().toLowerCase();
     let list = targets;
@@ -192,6 +215,7 @@ export default function NewPairPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          pairType,
           source,
           sourcePlaylistId: playlist.id,
           sourcePlaylistName: playlist.name,
@@ -216,15 +240,21 @@ export default function NewPairPage() {
     setBatching(true);
     setError(null);
     try {
-      const batchPayload = unpairedMatches.map((m) => ({
-        name: m.source.name,
-        spotifyPlaylistId: source === "spotify" ? m.source.id : m.target.id,
-        tidalPlaylistId: source === "spotify" ? m.target.id : m.source.id,
-        spotifyPlaylistUrl: source === "spotify" ? m.source.url : m.target.url,
-        tidalPlaylistUrl: source === "spotify" ? m.target.url : m.source.url,
-        coverImage: m.source.imageUrl || m.target.imageUrl,
-        syncMode,
-      }));
+      const batchPayload = unpairedMatches.map((m) => {
+        const isSp2 = pairType === "spotify_spotify";
+        return {
+          name: m.source.name,
+          pairType,
+          spotifyPlaylistId: source === "spotify" ? m.source.id : isSp2 ? m.target.id : m.target.id,
+          tidalPlaylistId: isSp2 ? undefined : source === "spotify" ? m.target.id : m.source.id,
+          spotify2PlaylistId: isSp2 ? (source === "spotify" ? m.target.id : m.source.id) : undefined,
+          spotifyPlaylistUrl: source === "spotify" ? m.source.url : isSp2 ? m.target.url : m.target.url,
+          tidalPlaylistUrl: isSp2 ? undefined : source === "spotify" ? m.target.url : m.source.url,
+          spotify2PlaylistUrl: isSp2 ? (source === "spotify" ? m.target.url : m.source.url) : undefined,
+          coverImage: m.source.imageUrl || m.target.imageUrl,
+          syncMode,
+        };
+      });
 
       const res = await fetch("/api/pairs/batch", {
         method: "POST",
@@ -233,7 +263,7 @@ export default function NewPairPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(formatApiError(json.error || "Batch-Pairing fehlgeschlagen"));
-      setSuccessNotice(`${json.createdCount} Playlists erfolgreich miteinander verknüpft!`);
+      setSuccessNotice(`${json.createdCount} Playlists erfolgreich verknüpft!`);
       setTimeout(() => {
         router.push("/dashboard");
       }, 1500);
@@ -243,7 +273,7 @@ export default function NewPairPage() {
     }
   }
 
-  const targetLabel = otherService === "spotify" ? "Spotify" : "Tidal";
+  const targetLabelText = sourceLabel(otherService);
 
   return (
     <AppShell>
@@ -255,14 +285,14 @@ export default function NewPairPage() {
           Playlist paaren
         </h1>
         <p className="mt-2 text-[var(--muted)]">
-          Verbinde existierende Playlists beider Dienste oder erstelle automatisch das Gegenstück.
+          Verbinde existierende Playlists beider Accounts oder erstelle automatisch das Gegenstück.
         </p>
 
         {status && !canPair ? (
           <div className="mt-8 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-6">
             <p className="font-semibold text-lg">Accounts noch nicht bereit</p>
             <p className="mt-2 text-sm text-[var(--muted)]">
-              Speichere deine Developer-Keys und verbinde Spotify & Tidal, bevor du Playlists paarst.
+              Speichere deine Developer-Keys und verbinde mindestens zwei Konten in den Einstellungen.
             </p>
             <Link
               href="/settings"
@@ -273,22 +303,101 @@ export default function NewPairPage() {
           </div>
         ) : (
           <>
+            {/* Sync Type Selector (Spotify ↔ Tidal OR Spotify ↔ Spotify) */}
+            <div className="mt-6 flex flex-wrap items-center gap-2.5 p-1.5 rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] max-w-xl">
+              <button
+                type="button"
+                onClick={() => switchPairType("spotify_tidal")}
+                className={`flex-1 rounded-xl py-2.5 px-4 text-xs font-semibold transition ${
+                  pairType === "spotify_tidal"
+                    ? "bg-black/50 text-white shadow-sm border border-[var(--border)]"
+                    : "text-[var(--muted)] hover:text-white"
+                }`}
+              >
+                Spotify ⇄ Tidal
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (hasSpotify2) switchPairType("spotify_spotify");
+                }}
+                disabled={!hasSpotify2}
+                className={`flex-1 rounded-xl py-2.5 px-4 text-xs font-semibold transition flex items-center justify-center gap-1.5 ${
+                  pairType === "spotify_spotify"
+                    ? "bg-black/50 text-white shadow-sm border border-[var(--border)]"
+                    : hasSpotify2
+                      ? "text-[var(--muted)] hover:text-white"
+                      : "text-[var(--muted)]/40 cursor-not-allowed"
+                }`}
+                title={!hasSpotify2 ? "Zweitaccount in Einstellungen verbinden" : ""}
+              >
+                <span>Spotify 1 ⇄ Spotify 2</span>
+                {!hasSpotify2 ? (
+                  <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-[var(--muted)]">
+                    +Account nötig
+                  </span>
+                ) : null}
+              </button>
+            </div>
+
             {/* Source selector */}
-            <div className="mt-6 flex flex-wrap gap-3">
-              {(["spotify", "tidal"] as const).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSource(s)}
-                  className={`flex items-center gap-2 rounded-2xl border px-4 py-3 transition ${
-                    source === s
-                      ? "border-[var(--spotify)] bg-[var(--bg-panel)] shadow-sm"
-                      : "border-[var(--border)] hover:border-white/40"
-                  }`}
-                >
-                  <ServiceBadge service={s} />
-                  <span className="text-sm font-medium">als Quelle wählen</span>
-                </button>
-              ))}
+            <div className="mt-5 flex flex-wrap gap-3">
+              {pairType === "spotify_tidal" ? (
+                <>
+                  <button
+                    key="spotify"
+                    onClick={() => setSource("spotify")}
+                    className={`flex items-center gap-2 rounded-2xl border px-4 py-2.5 transition ${
+                      source === "spotify"
+                        ? "border-[var(--spotify)] bg-[var(--bg-panel)] shadow-sm"
+                        : "border-[var(--border)] hover:border-white/40"
+                    }`}
+                  >
+                    <ServiceBadge service="spotify" />
+                    <span className="text-sm font-medium">als Quelle</span>
+                  </button>
+                  <button
+                    key="tidal"
+                    onClick={() => setSource("tidal")}
+                    className={`flex items-center gap-2 rounded-2xl border px-4 py-2.5 transition ${
+                      source === "tidal"
+                        ? "border-[var(--tidal)] bg-[var(--bg-panel)] shadow-sm"
+                        : "border-[var(--border)] hover:border-white/40"
+                    }`}
+                  >
+                    <ServiceBadge service="tidal" />
+                    <span className="text-sm font-medium">als Quelle</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    key="spotify"
+                    onClick={() => setSource("spotify")}
+                    className={`flex items-center gap-2 rounded-2xl border px-4 py-2.5 transition ${
+                      source === "spotify"
+                        ? "border-[var(--spotify)] bg-[var(--bg-panel)] shadow-sm"
+                        : "border-[var(--border)] hover:border-white/40"
+                    }`}
+                  >
+                    <ServiceBadge service="spotify" label="Spotify (Account 1)" />
+                    <span className="text-sm font-medium">als Quelle</span>
+                  </button>
+                  <button
+                    key="spotify_2"
+                    onClick={() => setSource("spotify_2")}
+                    className={`flex items-center gap-2 rounded-2xl border px-4 py-2.5 transition ${
+                      source === "spotify_2"
+                        ? "border-[var(--spotify)] bg-[var(--bg-panel)] shadow-sm"
+                        : "border-[var(--border)] hover:border-white/40"
+                    }`}
+                  >
+                    <ServiceBadge service="spotify_2" label="Spotify (Account 2)" />
+                    <span className="text-sm font-medium">als Quelle</span>
+                  </button>
+                </>
+              )}
             </div>
 
             {successNotice ? (
@@ -303,7 +412,7 @@ export default function NewPairPage() {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div>
                     <h2 className="font-semibold text-base text-white">
-                      Bereits auf beiden Plattformen ({crossMatches.length})
+                      Bereits auf beiden Accounts ({crossMatches.length})
                     </h2>
                     <p className="mt-0.5 text-xs text-[var(--muted)]">
                       Gefundene Namensübereinstimmungen — direkt verbinden statt Duplikate erzeugen.
@@ -373,7 +482,7 @@ export default function NewPairPage() {
                           <p className="mt-0.5 text-xs text-[var(--muted)]">
                             {formatTrackCount(m.source.trackCount)} ·{" "}
                             <span className="text-[var(--progress)]">
-                              {m.score >= 0.99 ? "Exakter Name" : "Ähnlicher Name"} auf {targetLabel}
+                              {m.score >= 0.99 ? "Exakter Name" : "Ähnlicher Name"} auf {targetLabelText}
                             </span>
                             {" · "}
                             {formatTrackCount(m.target.trackCount)}
@@ -508,7 +617,7 @@ export default function NewPairPage() {
                             </span>
                           ) : match ? (
                             <span className="rounded-full bg-[rgba(46,229,157,0.12)] border border-[rgba(46,229,157,0.25)] px-2 py-0.5 text-[10px] text-[var(--progress)]">
-                              Auch auf {targetLabel}
+                              Auch auf {targetLabelText}
                             </span>
                           ) : null}
                         </div>
@@ -612,7 +721,7 @@ export default function NewPairPage() {
                     )}
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <ServiceBadge service={source} />
+                        <ServiceBadge service={source} label={sourceLabel(source)} />
                         <span className="text-xs text-[var(--muted)]">Quelle</span>
                       </div>
                       <p className="font-semibold text-sm truncate text-white mt-0.5">
@@ -628,7 +737,7 @@ export default function NewPairPage() {
                   <div className="flex flex-col items-center justify-center shrink-0 text-center">
                     <span className="text-xl font-bold text-[var(--spotify)]">⇄</span>
                     <span className="text-[10px] text-[var(--muted)] uppercase tracking-wider">
-                      {syncMode === "mirror" ? "Mirror Sync" : "Additive Sync"}
+                      {syncModeLabel(syncMode)}
                     </span>
                   </div>
 
@@ -648,7 +757,7 @@ export default function NewPairPage() {
                     )}
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <ServiceBadge service={otherService} />
+                        <ServiceBadge service={otherService} label={sourceLabel(otherService)} />
                         <span className="text-xs text-[var(--muted)]">Ziel</span>
                       </div>
                       <p className="font-semibold text-sm truncate text-white mt-0.5">
@@ -663,12 +772,10 @@ export default function NewPairPage() {
                   </div>
                 </div>
 
-                {/* Diff Estimate Hint */}
                 {!createTarget && selectedTarget ? (
                   <p className="mt-3 text-xs text-[var(--muted)]">
                     Unterschied: ~
                     {Math.abs(selectedPlaylist.trackCount - selectedTarget.trackCount)} Songs Differenz.
-                    Beim Sync werden fehlende Titel ergänzt.
                   </p>
                 ) : null}
               </div>
@@ -689,7 +796,7 @@ export default function NewPairPage() {
                       : "border-[var(--border)] hover:border-white/30"
                   }`}
                 >
-                  <strong className="text-white">Bestehende Playlist auf {targetLabel} verknüpfen</strong>
+                  <strong className="text-white">Bestehende Playlist auf {targetLabelText} verknüpfen</strong>
                   <p className="mt-1 text-xs text-[var(--muted)]">
                     Nutzt ein bereits vorhandenes Gegenstück — verhindert doppelte Playlists.
                   </p>
@@ -706,19 +813,18 @@ export default function NewPairPage() {
                       : "border-[var(--border)] hover:border-white/30"
                   }`}
                 >
-                  <strong className="text-white">Neue Playlist auf {targetLabel} anlegen</strong>
+                  <strong className="text-white">Neue Playlist auf {targetLabelText} anlegen</strong>
                   <p className="mt-1 text-xs text-[var(--muted)]">
                     Erstellt eine frische Ziel-Playlist mit demselben Namen.
                   </p>
                 </button>
               </div>
 
-              {/* Searchable Target Picker instead of raw select */}
               {!createTarget ? (
                 <div className="pt-2">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs uppercase tracking-wider text-[var(--muted)] font-medium">
-                      Ziel-Playlist auf {targetLabel} auswählen
+                      Ziel-Playlist auf {targetLabelText} auswählen
                     </span>
                     {liveTargetHint ? (
                       <span className="text-xs text-[var(--progress)]">
@@ -730,7 +836,7 @@ export default function NewPairPage() {
                   <input
                     value={targetQuery}
                     onChange={(e) => setTargetQuery(e.target.value)}
-                    placeholder={`Ziel-Playlists auf ${targetLabel} filtern…`}
+                    placeholder={`Ziel-Playlists auf ${targetLabelText} filtern…`}
                     className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3.5 py-2.5 text-sm text-white outline-none focus:border-[var(--spotify)] mb-2"
                   />
 
@@ -779,33 +885,49 @@ export default function NewPairPage() {
               {/* Sync mode cards */}
               <div>
                 <p className="text-sm font-medium text-white">Synchronisations-Modus</p>
-                <div className="mt-2 grid gap-2.5 sm:grid-cols-2">
+                <div className="mt-2 grid gap-2.5 sm:grid-cols-3">
                   <button
                     type="button"
                     onClick={() => setSyncMode("additive")}
                     className={`rounded-2xl border p-3.5 text-left text-sm transition ${
                       syncMode === "additive"
-                        ? "border-[var(--spotify)] bg-black/30"
+                        ? "border-[var(--spotify)] bg-black/30 shadow-sm"
                         : "border-[var(--border)] hover:border-white/30"
                     }`}
                   >
-                    <strong className="text-white">Additive (Sicherer Standard)</strong>
+                    <strong className="text-white block">Additive Sync</strong>
                     <p className="mt-1 text-xs text-[var(--muted)]">
-                      Fügt nur fehlende Songs hinzu. Keine Titel werden jemals gelöscht.
+                      Nur hinzufügen, nie löschen. Der sicherste Standard für beide Seiten.
                     </p>
                   </button>
+
                   <button
                     type="button"
                     onClick={() => setSyncMode("mirror")}
                     className={`rounded-2xl border p-3.5 text-left text-sm transition ${
                       syncMode === "mirror"
-                        ? "border-[var(--danger)] bg-black/30"
+                        ? "border-[var(--danger)] bg-black/30 shadow-sm"
                         : "border-[var(--border)] hover:border-white/30"
                     }`}
                   >
-                    <strong className="text-white">Mirror (Spiegelung)</strong>
+                    <strong className="text-white block">Zwei-Wege Mirror</strong>
                     <p className="mt-1 text-xs text-[var(--muted)]">
-                      Spiegelt auch Löschungen in beide Richtungen.
+                      Spiegelt Hinzufügungen & Löschungen in beide Richtungen (mit Notbremse).
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSyncMode("one_way_a_to_b")}
+                    className={`rounded-2xl border p-3.5 text-left text-sm transition ${
+                      syncMode === "one_way_a_to_b"
+                        ? "border-[var(--accent)] bg-black/30 shadow-sm"
+                        : "border-[var(--border)] hover:border-white/30"
+                    }`}
+                  >
+                    <strong className="text-white block">Einweg (Master → Replica)</strong>
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Quelle bestimmt den Inhalt exakt 1:1. Quelle bleibt unberührt.
                     </p>
                   </button>
                 </div>
@@ -835,4 +957,16 @@ export default function NewPairPage() {
 
 function formatTrackCount(n: number) {
   return `${n} ${n === 1 ? "Track" : "Tracks"}`;
+}
+
+function sourceLabel(s: "spotify" | "spotify_2" | "tidal"): string {
+  if (s === "spotify") return "Spotify (Account 1)";
+  if (s === "spotify_2") return "Spotify (Account 2)";
+  return "Tidal";
+}
+
+function syncModeLabel(m: string): string {
+  if (m === "mirror") return "Mirror Sync";
+  if (m === "one_way_a_to_b" || m === "one_way_b_to_a") return "Einweg Sync";
+  return "Additive Sync";
 }

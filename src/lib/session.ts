@@ -54,7 +54,7 @@ export async function clearSessionCookie() {
 }
 
 export type OAuthState = {
-  provider: "spotify" | "tidal";
+  provider: "spotify" | "spotify_2" | "tidal";
   state: string;
   codeVerifier?: string;
 };

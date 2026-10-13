@@ -10,12 +10,17 @@ const batchSchema = z.object({
     .array(
       z.object({
         name: z.string().min(1),
-        spotifyPlaylistId: z.string().min(1),
-        tidalPlaylistId: z.string().min(1),
+        pairType: z.enum(["spotify_tidal", "spotify_spotify"]).default("spotify_tidal"),
+        spotifyPlaylistId: z.string().optional(),
+        tidalPlaylistId: z.string().optional(),
+        spotify2PlaylistId: z.string().optional(),
         spotifyPlaylistUrl: z.string().optional(),
         tidalPlaylistUrl: z.string().optional(),
+        spotify2PlaylistUrl: z.string().optional(),
         coverImage: z.string().optional(),
-        syncMode: z.enum(["additive", "mirror"]).default("additive"),
+        syncMode: z
+          .enum(["additive", "mirror", "one_way_a_to_b", "one_way_b_to_a"])
+          .default("additive"),
       }),
     )
     .min(1),
@@ -36,10 +41,13 @@ export async function POST(req: Request) {
       .insert(schema.playlistPairs)
       .values({
         name: item.name,
-        spotifyPlaylistId: item.spotifyPlaylistId,
-        tidalPlaylistId: item.tidalPlaylistId,
+        pairType: item.pairType || "spotify_tidal",
+        spotifyPlaylistId: item.spotifyPlaylistId || null,
+        tidalPlaylistId: item.tidalPlaylistId || null,
+        spotify2PlaylistId: item.spotify2PlaylistId || null,
         spotifyPlaylistUrl: item.spotifyPlaylistUrl || null,
         tidalPlaylistUrl: item.tidalPlaylistUrl || null,
+        spotify2PlaylistUrl: item.spotify2PlaylistUrl || null,
         coverImages: item.coverImage ? [item.coverImage] : [],
         syncMode: item.syncMode || "additive",
         status: "idle",
