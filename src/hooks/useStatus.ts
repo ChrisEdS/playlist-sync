@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { formatApiError } from "@/lib/format-error";
 
 export type StatusPayload = {
   connections: {
@@ -62,11 +63,14 @@ export function useStatus(pollMs = 2500) {
   const refresh = useCallback(async () => {
     try {
       const res = await fetch("/api/status");
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(formatApiError(body, "Status konnte nicht geladen werden"));
+      }
       setData(await res.json());
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
+      setError(formatApiError(e, "Status konnte nicht geladen werden"));
     }
   }, []);
 

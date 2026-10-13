@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { ServiceBadge } from "@/components/ServiceBadge";
 import { useStatus } from "@/hooks/useStatus";
+import { errorSuggestsReconnect, formatApiError } from "@/lib/format-error";
 
 const DEVELOPER_APPS = {
   spotify: {
@@ -62,17 +63,22 @@ function SettingsInner() {
   useEffect(() => {
     const connected = params.get("connected");
     const error = params.get("error");
-    if (connected) setNotice(`${connected} connected`);
+    if (connected === "spotify") setNotice("Spotify verbunden.");
+    else if (connected === "tidal") setNotice("Tidal verbunden.");
+    else if (connected) setNotice(`${connected} verbunden.`);
     if (error === "spotify_credentials_missing") {
       setNotice("Bitte zuerst Spotify Client ID & Secret speichern.");
     } else if (error === "tidal_credentials_missing") {
       setNotice("Bitte zuerst Tidal Client ID speichern.");
     } else if (error) {
-      setNotice(`Error: ${error}`);
+      setNotice(formatApiError(error));
     }
     refresh();
     loadCreds();
   }, [params, refresh, loadCreds]);
+
+  const pinDisabled = Boolean(data?.setup?.pinDisabled);
+  const reconnectHint = notice ? errorSuggestsReconnect(notice) : null;
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -82,12 +88,12 @@ function SettingsInner() {
   return (
     <AppShell>
       <div className="mx-auto max-w-3xl p-6 md:p-10">
-        <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Settings</p>
+        <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">Einstellungen</p>
         <h1
           className="mt-2 text-3xl font-semibold"
           style={{ fontFamily: "var(--font-syne), sans-serif" }}
         >
-          Profile & Connections
+          Verbindungen
         </h1>
         <p className="mt-2 text-[var(--muted)]">
           Zuerst Developer-App-Keys eintragen, dann Spotify und Tidal verbinden. Secrets werden
@@ -95,9 +101,17 @@ function SettingsInner() {
         </p>
 
         {notice ? (
-          <p className="mt-4 rounded-2xl border border-[var(--border)] bg-black/40 px-4 py-3 text-sm">
-            {notice}
-          </p>
+          <div className="mt-4 rounded-2xl border border-[var(--border)] bg-black/40 px-4 py-3 text-sm">
+            <p>{notice}</p>
+            {reconnectHint ? (
+              <a
+                href={`/api/auth/${reconnectHint}`}
+                className="mt-2 inline-block text-[var(--spotify)] underline-offset-2 hover:underline"
+              >
+                {reconnectHint === "spotify" ? "Spotify erneut verbinden" : "Tidal erneut verbinden"} ↗
+              </a>
+            ) : null}
+          </div>
         ) : null}
 
         <ol className="mt-8 space-y-3 text-sm text-[var(--muted)]">
@@ -169,24 +183,32 @@ function SettingsInner() {
         </div>
 
         <div className="mt-10 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
-          <h2 className="font-semibold">Sync schedule</h2>
+          <h2 className="font-semibold">Sync-Zeitplan</h2>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Cron: <code className="text-[var(--accent)]">/api/cron/sync</code> daily 04:00 UTC
-            (Hobby). Use Sync now anytime from the dashboard.
+            Cron: <code className="text-[var(--accent)]">/api/cron/sync</code> täglich 04:00 UTC
+            (Hobby). Jederzeit „Sync now“ vom Dashboard.
           </p>
-          <p className="mt-3 text-xs text-[var(--muted)]">
-            Auth: with Vercel Deployment Protection you can set{" "}
-            <code className="text-[var(--accent)]">DISABLE_APP_PIN=1</code> to drop the app PIN
-            layer.
-          </p>
+          {pinDisabled ? (
+            <p className="mt-3 text-xs text-[var(--muted)]">
+              App-PIN ist aus (<code className="text-[var(--accent)]">DISABLE_APP_PIN</code>) —
+              Zugang über Vercel Authentication.
+            </p>
+          ) : (
+            <p className="mt-3 text-xs text-[var(--muted)]">
+              Optional: mit Vercel Deployment Protection{" "}
+              <code className="text-[var(--accent)]">DISABLE_APP_PIN=1</code> setzen.
+            </p>
+          )}
         </div>
 
-        <button
-          onClick={logout}
-          className="mt-8 rounded-2xl border border-[var(--border)] px-4 py-3 text-sm text-[var(--muted)] hover:border-[var(--danger)] hover:text-white"
-        >
-          Lock instance
-        </button>
+        {!pinDisabled ? (
+          <button
+            onClick={logout}
+            className="mt-8 rounded-2xl border border-[var(--border)] px-4 py-3 text-sm text-[var(--muted)] hover:border-[var(--danger)] hover:text-white"
+          >
+            Instanz sperren
+          </button>
+        ) : null}
       </div>
     </AppShell>
   );
@@ -218,6 +240,11 @@ function ProviderSetup({
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
+  const fallbackRedirect =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/api/auth/${service}/callback`
+      : "";
+  const effectiveRedirect = redirectUri || fallbackRedirect;
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -235,21 +262,21 @@ function ProviderSetup({
         }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Save failed");
+      if (!res.ok) throw new Error(formatApiError(json.error || "Speichern fehlgeschlagen"));
       setClientId("");
       setClientSecret("");
       setSavedOk(true);
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setError(formatApiError(err, "Speichern fehlgeschlagen"));
     } finally {
       setSaving(false);
     }
   }
 
   async function copyRedirect() {
-    if (!redirectUri) return;
-    await navigator.clipboard.writeText(redirectUri);
+    if (!effectiveRedirect) return;
+    await navigator.clipboard.writeText(effectiveRedirect);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
@@ -264,19 +291,19 @@ function ProviderSetup({
             <ServiceBadge service={service} />
             <StatusPill
               ok={connected}
-              label={connected ? "Account connected" : "Account not connected"}
+              label={connected ? "Account verbunden" : "Account nicht verbunden"}
             />
             <StatusPill
               ok={Boolean(status?.configured)}
-              label={status?.configured ? "App keys saved" : "App keys missing"}
+              label={status?.configured ? "App-Keys gespeichert" : "App-Keys fehlen"}
             />
           </div>
           <h2 className="mt-3 text-xl font-semibold">{title}</h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
             {connected
-              ? accountName || "Account linked"
+              ? accountName || "Account verknüpft"
               : status?.configured
-                ? `Keys ready${status.clientIdHint ? ` (${status.clientIdHint})` : ""}`
+                ? `Keys bereit${status.clientIdHint ? ` (${status.clientIdHint})` : ""}`
                 : "Keys eintragen, dann verbinden"}
           </p>
           <a
@@ -299,11 +326,11 @@ function ProviderSetup({
                 : undefined
             }
           >
-            {connected ? "Reconnect" : "Connect account"}
+            {connected ? "Erneut verbinden" : "Account verbinden"}
           </a>
         ) : (
           <span className="rounded-2xl border border-[var(--border)] px-5 py-3 text-sm text-[var(--muted)]">
-            Connect nach Key-Save
+            Verbinden nach Key-Save
           </span>
         )}
       </div>
@@ -313,14 +340,15 @@ function ProviderSetup({
           <p className="text-xs uppercase tracking-[0.14em] text-[var(--muted)]">Redirect URI</p>
           <div className="mt-2 flex flex-col gap-2 sm:flex-row">
             <code className="flex-1 break-all rounded-xl border border-[var(--border)] bg-black/40 px-3 py-2 text-xs text-[var(--accent)]">
-              {redirectUri || "…"}
+              {effectiveRedirect || "lädt…"}
             </code>
             <button
               type="button"
               onClick={copyRedirect}
-              className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm hover:border-white"
+              disabled={!effectiveRedirect}
+              className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm hover:border-white disabled:opacity-40"
             >
-              {copied ? "Copied" : "Copy"}
+              {copied ? "Kopiert" : "Kopieren"}
             </button>
           </div>
           <p className="mt-2 text-xs text-[var(--muted)]">
@@ -361,7 +389,9 @@ function ProviderSetup({
             <input
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
-              placeholder={status?.clientIdHint ? `Saved: ${status.clientIdHint}` : "Paste Client ID"}
+              placeholder={
+                status?.clientIdHint ? `Gespeichert: ${status.clientIdHint}` : "Client ID einfügen"
+              }
               autoComplete="off"
               className="mt-1.5 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-white outline-none focus:border-[var(--spotify)]"
               required
@@ -374,7 +404,7 @@ function ProviderSetup({
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
               placeholder={
-                status?.hasSecret ? "Saved — enter to replace" : "Paste Client Secret"
+                status?.hasSecret ? "Gespeichert — neu eingeben zum Ersetzen" : "Client Secret einfügen"
               }
               autoComplete="new-password"
               className="mt-1.5 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-white outline-none focus:border-[var(--spotify)]"
@@ -382,13 +412,13 @@ function ProviderSetup({
             />
           </label>
           {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
-          {savedOk ? <p className="text-sm text-[var(--progress)]">Saved.</p> : null}
+          {savedOk ? <p className="text-sm text-[var(--progress)]">Gespeichert.</p> : null}
           <button
             type="submit"
             disabled={saving || !clientId.trim()}
             className="justify-self-start rounded-2xl bg-white px-5 py-2.5 text-sm font-semibold text-black disabled:opacity-40"
           >
-            {saving ? "Saving…" : status?.configured ? "Update keys" : "Save keys"}
+            {saving ? "Speichern…" : status?.configured ? "Keys aktualisieren" : "Keys speichern"}
           </button>
         </form>
 
@@ -402,20 +432,20 @@ function ProviderSetup({
               }}
               className="text-sm text-[var(--danger)] hover:underline"
             >
-              Disconnect account
+              Account trennen
             </button>
           ) : null}
           {status?.configured ? (
             <button
               type="button"
               onClick={async () => {
-                if (!confirm("Clear saved developer keys for this service?")) return;
+                if (!confirm("Gespeicherte Developer-Keys für diesen Dienst löschen?")) return;
                 await fetch(`/api/settings/credentials/${service}`, { method: "DELETE" });
                 onSaved();
               }}
               className="text-sm text-[var(--muted)] hover:text-white hover:underline"
             >
-              Clear saved keys
+              Keys löschen
             </button>
           ) : null}
         </div>

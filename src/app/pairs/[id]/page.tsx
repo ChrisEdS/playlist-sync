@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { ServiceBadge } from "@/components/ServiceBadge";
+import { formatApiError } from "@/lib/format-error";
 
 type Plan = {
   syncMode: string;
@@ -50,7 +51,7 @@ function PairDetailInner() {
 
   useEffect(() => {
     load()
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(formatApiError(e)))
       .finally(() => setLoading(false));
   }, [load]);
 
@@ -67,10 +68,10 @@ function PairDetailInner() {
     try {
       const res = await fetch(`/api/pairs/${id}/preview`, { method: "POST" });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Preview failed");
+      if (!res.ok) throw new Error(formatApiError(json.error || "Preview fehlgeschlagen"));
       setPlan(json.plan);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Preview failed");
+      setError(formatApiError(e, "Preview fehlgeschlagen"));
     } finally {
       setPreviewing(false);
     }
@@ -87,11 +88,11 @@ function PairDetailInner() {
     try {
       const res = await fetch(`/api/pairs/${id}/sync`, { method: "POST" });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Sync failed");
+      if (!res.ok) throw new Error(formatApiError(json.error || "Sync fehlgeschlagen"));
       router.replace(`/pairs/${id}`);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Sync failed");
+      setError(formatApiError(e, "Sync fehlgeschlagen"));
     } finally {
       setSyncing(false);
     }
@@ -133,7 +134,7 @@ function PairDetailInner() {
     <AppShell>
       <div className="mx-auto max-w-3xl p-6 md:p-10">
         <Link href="/dashboard" className="text-sm text-[var(--muted)] hover:text-white">
-          ← Synced playlists
+          ← Synced Playlists
         </Link>
         <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
           <div>

@@ -130,12 +130,18 @@ type SpotifyPlaylistPage = {
   items: Array<{
     id: string;
     name: string;
+    /** Preferred (newer API). */
+    items?: { total?: number } | null;
+    /** Deprecated — still returned by some responses. */
     tracks?: { total?: number } | null;
     images?: Array<{ url: string }>;
     external_urls?: { spotify?: string };
     owner?: { display_name?: string };
-  }>;
+  } | null>;
   next: string | null;
+  total?: number;
+  limit?: number;
+  offset?: number;
 };
 
 type SpotifyTracksPage = {
@@ -155,23 +161,30 @@ type SpotifyTracksPage = {
 
 export async function listSpotifyPlaylists(): Promise<NormalizedPlaylist[]> {
   const items: NormalizedPlaylist[] = [];
-  let url: string | null = "/me/playlists?limit=50";
-  while (url) {
+  const limit = 50;
+  let offset = 0;
+  let total = Infinity;
+
+  // Paginate via /me/playlists offsets — Spotify's `next` can point at the
+  // removed /users/{id}/playlists endpoint (403), so we don't follow it.
+  while (offset < total) {
     const page: SpotifyPlaylistPage = await spotifyFetch<SpotifyPlaylistPage>(
-      url.startsWith("http") ? url.replace(API, "") : url,
+      `/me/playlists?limit=${limit}&offset=${offset}`,
     );
+    total = typeof page.total === "number" ? page.total : offset + (page.items?.length || 0);
     for (const p of page.items || []) {
       if (!p?.id) continue;
       items.push({
         id: p.id,
         name: p.name || "Untitled",
-        trackCount: p.tracks?.total ?? 0,
+        trackCount: p.items?.total ?? p.tracks?.total ?? 0,
         imageUrl: p.images?.[0]?.url,
         url: p.external_urls?.spotify,
         owner: p.owner?.display_name,
       });
     }
-    url = page.next ? page.next.replace(API, "") : null;
+    if (!page.items?.length) break;
+    offset += limit;
   }
   return items;
 }
