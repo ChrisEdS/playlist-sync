@@ -56,7 +56,11 @@ export default function DashboardPage() {
     if (queueing) return;
     setQueueing(true);
     try {
-      await fetch("/api/pairs/sync-all", { method: "POST" });
+      await fetch("/api/pairs/sync-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resume: (data?.queue?.queued || 0) > 0 }),
+      });
       refresh();
     } finally {
       setTimeout(() => setQueueing(false), 2000);
@@ -122,6 +126,20 @@ export default function DashboardPage() {
         {/* Active Sync Card */}
         {data?.activeJob ? (
           <div className="mt-6 rounded-3xl border border-[var(--spotify)]/30 bg-[var(--bg-panel)] p-5 shadow-[0_10px_30px_rgba(30,215,96,0.1)]">
+            {data.activeJob.status === "queued" ? (
+              <>
+                <span className="text-xs uppercase tracking-[0.18em] text-[var(--muted)] font-semibold">
+                  Warteschlange
+                </span>
+                <p className="mt-2.5 font-semibold text-lg">
+                  {data.activePair?.name || "Nächstes Paar"} wartet
+                </p>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {data.queue?.queued || 1} Paare sind eingereiht. „Fortsetzen“ startet den nächsten Lauf.
+                </p>
+              </>
+            ) : (
+              <>
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[var(--spotify)] font-semibold">
                 <span className="h-2 w-2 rounded-full bg-[var(--spotify)] animate-ping" />
@@ -151,6 +169,8 @@ export default function DashboardPage() {
                 <span>{data.activeJob.message || "Gleiche Daten ab…"}</span>
               </div>
             </div>
+              </>
+            )}
           </div>
         ) : null}
 

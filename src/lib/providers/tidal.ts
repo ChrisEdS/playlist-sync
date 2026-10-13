@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "crypto";
 import { getAppUrl } from "../env";
 import { randomToken } from "../crypto";
 import { findBestMatch } from "../matching";
-import type { NormalizedPlaylist, NormalizedTrack, TokenBundle } from "./types";
+import { asDurationMs, type NormalizedPlaylist, type NormalizedTrack, type TokenBundle } from "./types";
 import { getProviderCredentials } from "./credentials";
 import { getDecryptedTokens, saveTokens } from "./tokens";
 
@@ -295,7 +295,7 @@ export async function getTidalPlaylistTracks(playlistId: string): Promise<Normal
           isrc: track.attributes?.isrc,
           title: track.attributes?.title || "Unknown",
           artists: artists.length ? artists : attrArtists || [],
-          durationMs: (track.attributes?.duration || 0) * 1000,
+          durationMs: asDurationMs((Number(track.attributes?.duration) || 0) * 1000),
           album: track.attributes?.album?.title,
         });
       }
@@ -345,7 +345,7 @@ export async function getTidalPlaylistTracks(playlistId: string): Promise<Normal
           isrc: track.attributes?.isrc,
           title: track.attributes?.title || "Unknown",
           artists: artists.length ? artists : attrArtists || [],
-          durationMs: (track.attributes?.duration || 0) * 1000,
+          durationMs: asDurationMs((Number(track.attributes?.duration) || 0) * 1000),
           album: track.attributes?.album?.title,
         });
       }
@@ -455,7 +455,7 @@ export async function searchTidalTrack(track: NormalizedTrack): Promise<Normaliz
     title: t.attributes?.title || track.title,
     artists:
       (t.attributes?.artists?.map((a) => a.name).filter(Boolean) as string[]) || track.artists,
-    durationMs: (t.attributes?.duration || 0) * 1000,
+    durationMs: asDurationMs((Number(t.attributes?.duration) || 0) * 1000),
   }));
 
   const match = findBestMatch(track, candidates);
@@ -480,7 +480,7 @@ export async function searchTidalTrack(track: NormalizedTrack): Promise<Normaliz
       title: t.attributes?.title || track.title,
       artists:
         (t.attributes?.artists?.map((a) => a.name).filter(Boolean) as string[]) || track.artists,
-      durationMs: (t.attributes?.duration || 0) * 1000,
+      durationMs: asDurationMs((Number(t.attributes?.duration) || 0) * 1000),
     }));
 
     return findBestMatch(track, fallbackCandidates);
@@ -505,7 +505,7 @@ export async function searchTidalTracksByQuery(query: string): Promise<Normalize
     isrc: t.attributes?.isrc,
     title: t.attributes?.title || query,
     artists: (t.attributes?.artists?.map((a) => a.name).filter(Boolean) as string[]) || [],
-    durationMs: (t.attributes?.duration || 0) * 1000,
+    durationMs: asDurationMs((Number(t.attributes?.duration) || 0) * 1000),
     album: t.attributes?.album?.title,
   }));
 }

@@ -21,7 +21,9 @@ export async function GET() {
 
     const visibleJobs = jobs.filter((job) => job.type !== "gap");
     const activeJob =
-      visibleJobs.find((j) => j.status === "running" || j.status === "queued") || null;
+      visibleJobs.find((j) => j.status === "running") ||
+      visibleJobs.find((j) => j.status === "queued") ||
+      null;
     const activePair = activeJob?.pairId
       ? pairs.find((p) => p.id === activeJob.pairId) || null
       : pairs.find((p) => p.status === "syncing" || p.status === "matching") || null;

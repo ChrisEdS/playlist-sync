@@ -5,9 +5,15 @@ import { enqueueEnabledPairs, kickQueue } from "@/lib/sync/queue";
 
 export const maxDuration = 300;
 
-export async function POST() {
+export async function POST(req: Request) {
   const denied = await requireAuth();
   if (denied) return denied;
+  const body = (await req.json().catch(() => ({}))) as { resume?: boolean };
+
+  if (body.resume) {
+    waitUntil(kickQueue());
+    return NextResponse.json({ ok: true, resumed: true });
+  }
 
   const jobs = await enqueueEnabledPairs("Nacheinander eingereiht…");
   waitUntil(kickQueue());

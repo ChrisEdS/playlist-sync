@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { getDb, schema } from "../db";
 import { canonicalKey } from "../matching";
-import type { NormalizedTrack } from "../providers/types";
+import { asDurationMs, type NormalizedTrack } from "../providers/types";
 import {
   addTracksToSpotifyPlaylist,
   getSpotifyPlaylistTracks,
@@ -63,7 +63,7 @@ async function upsertMatch(
     isrc: track.isrc || row?.isrc || null,
     title: track.title,
     artists: track.artists,
-    durationMs: track.durationMs,
+    durationMs: asDurationMs(track.durationMs),
     spotifyTrackId: isSpotify ? track.id : row?.spotifyTrackId || null,
     tidalTrackId: side === "tidal" ? track.id : row?.tidalTrackId || null,
     updatedAt: new Date(),
@@ -139,7 +139,7 @@ async function resolveIdForSide(
         isrc: source.isrc || null,
         title: source.title,
         artists: source.artists,
-        durationMs: source.durationMs,
+        durationMs: asDurationMs(source.durationMs),
         spotifyTrackId: isSpotify ? null : source.id,
         tidalTrackId: side === "tidal" ? null : source.id,
         spotifyNotFound: isSpotify ? 1 : 0,
@@ -170,7 +170,7 @@ async function resolveIdForSide(
       isrc: source.isrc || found.isrc || null,
       title: source.title,
       artists: source.artists,
-      durationMs: source.durationMs,
+      durationMs: asDurationMs(source.durationMs),
       spotifyTrackId: isSpotify ? found.id : source.id,
       tidalTrackId: side === "tidal" ? found.id : source.id,
     });

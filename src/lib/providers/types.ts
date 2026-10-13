@@ -1,6 +1,13 @@
 export type ServiceProvider = "spotify" | "spotify_2" | "tidal";
 export type SpotifyAccountSlot = "spotify" | "spotify_2";
 
+/** Postgres integer columns reject NaN/undefined. Missing durations become 0. */
+export function asDurationMs(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n);
+}
+
 export type NormalizedTrack = {
   id: string;
   isrc?: string;

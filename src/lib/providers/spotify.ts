@@ -1,7 +1,7 @@
 import { getAppUrl } from "../env";
 import { randomToken } from "../crypto";
 import { findBestMatch } from "../matching";
-import type { NormalizedPlaylist, NormalizedTrack, SpotifyAccountSlot, TokenBundle } from "./types";
+import { asDurationMs, type NormalizedPlaylist, type NormalizedTrack, type SpotifyAccountSlot, type TokenBundle } from "./types";
 import { getProviderCredentials } from "./credentials";
 import { getDecryptedTokens, saveTokens } from "./tokens";
 
@@ -242,7 +242,7 @@ async function fetchFollowedSpotifyPlaylistTracks(playlistId: string): Promise<N
             .map((s) => s.trim())
             .filter(Boolean)
         : ["Unknown"],
-      durationMs: t.duration || 0,
+      durationMs: asDurationMs(t.duration),
       uri: t.uri,
     }),
   );
@@ -270,7 +270,7 @@ export async function getSpotifyPlaylistTracks(
           isrc: t.external_ids?.isrc,
           title: t.name,
           artists: t.artists?.map((a: { name: string }) => a.name) || [],
-          durationMs: t.duration_ms,
+          durationMs: asDurationMs(t.duration_ms),
           album: t.album?.name,
           uri: t.uri,
         });
@@ -305,7 +305,7 @@ export async function getSpotifyPlaylistTracks(
             isrc: t.external_ids?.isrc,
             title: t.name,
             artists: t.artists?.map((a: { name: string }) => a.name) || [],
-            durationMs: t.duration_ms,
+            durationMs: asDurationMs(t.duration_ms),
             album: t.album?.name,
             uri: t.uri,
           });
@@ -422,7 +422,7 @@ export async function searchSpotifyTrack(
     isrc: item.external_ids?.isrc,
     title: item.name,
     artists: item.artists.map((a) => a.name),
-    durationMs: item.duration_ms,
+    durationMs: asDurationMs(item.duration_ms),
     album: item.album?.name,
     uri: item.uri,
   }));
@@ -452,7 +452,7 @@ export async function searchSpotifyTrack(
       isrc: item.external_ids?.isrc,
       title: item.name,
       artists: item.artists.map((a) => a.name),
-      durationMs: item.duration_ms,
+      durationMs: asDurationMs(item.duration_ms),
       album: item.album?.name,
       uri: item.uri,
     }));
@@ -485,7 +485,7 @@ export async function searchSpotifyTracksByQuery(
     isrc: item.external_ids?.isrc,
     title: item.name,
     artists: item.artists.map((a) => a.name),
-    durationMs: item.duration_ms,
+    durationMs: asDurationMs(item.duration_ms),
     album: item.album?.name,
     uri: item.uri,
   }));

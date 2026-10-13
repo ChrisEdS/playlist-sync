@@ -47,6 +47,9 @@ export function formatApiError(input: unknown, fallback = "Etwas ist schiefgelau
   if (lower.includes("invalid include path") || lower.includes("generic_request_error")) {
     return "Tidal-API-Format wurde aktualisiert — bitte jetzt synchronisieren.";
   }
+  if (lower.includes("failed query") || lower.includes("track_matches")) {
+    return "Sync abgebrochen: ein Titel hatte keine gültige Dauer. Bitte den Lauf erneut starten.";
+  }
   if (lower.includes("sicherheitsabbruch") || lower.includes("leere trackliste")) {
     return "Sync gestoppt, weil eine Seite leer zurückkam. Eine neue leere Ziel-Playlist wird beim nächsten Lauf normal befüllt.";
   }
