@@ -6,6 +6,17 @@ import { AppShell } from "@/components/AppShell";
 import { ServiceBadge } from "@/components/ServiceBadge";
 import { useStatus } from "@/hooks/useStatus";
 
+const DEVELOPER_APPS = {
+  spotify: {
+    label: "Spotify Developer Dashboard",
+    url: "https://developer.spotify.com/dashboard",
+  },
+  tidal: {
+    label: "Tidal Developer Portal",
+    url: "https://developer.tidal.com/dashboard",
+  },
+} as const;
+
 type CredStatus = {
   configured: boolean;
   source: string;
@@ -77,7 +88,26 @@ function SettingsInner() {
             <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--bg-panel)] text-xs text-white">
               1
             </span>
-            Developer App anlegen und Redirect URI eintragen
+            <span>
+              Developer App anlegen und Redirect URI eintragen —{" "}
+              <a
+                href={DEVELOPER_APPS.spotify.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[var(--spotify)] underline-offset-2 hover:underline"
+              >
+                Spotify Dashboard ↗
+              </a>
+              {" · "}
+              <a
+                href={DEVELOPER_APPS.tidal.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[var(--tidal)] underline-offset-2 hover:underline"
+              >
+                Tidal Portal ↗
+              </a>
+            </span>
           </li>
           <li className="flex gap-3">
             <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--bg-panel)] text-xs text-white">
@@ -101,7 +131,6 @@ function SettingsInner() {
             accountName={data?.connections.spotify.displayName}
             status={creds?.credentials.spotify}
             redirectUri={creds?.redirectUris.spotify}
-            dashboardUrl={creds?.dashboards.spotify}
             requireSecret
             onSaved={() => {
               loadCreds();
@@ -115,7 +144,6 @@ function SettingsInner() {
             accountName={data?.connections.tidal.displayName}
             status={creds?.credentials.tidal}
             redirectUri={creds?.redirectUris.tidal}
-            dashboardUrl={creds?.dashboards.tidal}
             onSaved={() => {
               loadCreds();
               refresh();
@@ -154,7 +182,6 @@ function ProviderSetup({
   accountName,
   status,
   redirectUri,
-  dashboardUrl,
   requireSecret,
   onSaved,
 }: {
@@ -164,10 +191,10 @@ function ProviderSetup({
   accountName?: string | null;
   status?: CredStatus;
   redirectUri?: string;
-  dashboardUrl?: string;
   requireSecret?: boolean;
   onSaved: () => void;
 }) {
+  const developerApp = DEVELOPER_APPS[service];
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [saving, setSaving] = useState(false);
@@ -235,6 +262,15 @@ function ProviderSetup({
                 ? `Keys ready${status.clientIdHint ? ` (${status.clientIdHint})` : ""}`
                 : "Keys eintragen, dann verbinden"}
           </p>
+          <a
+            href={developerApp.url}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 inline-flex items-center gap-1 text-sm underline-offset-2 hover:underline"
+            style={{ color: service === "spotify" ? "var(--spotify)" : "var(--tidal)" }}
+          >
+            {developerApp.label} ↗
+          </a>
         </div>
         {canConnect ? (
           <a
@@ -270,16 +306,19 @@ function ProviderSetup({
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
-          {dashboardUrl ? (
+          <p className="mt-2 text-xs text-[var(--muted)]">
+            In der{" "}
             <a
-              href={dashboardUrl}
+              href={developerApp.url}
               target="_blank"
               rel="noreferrer"
-              className="mt-2 inline-block text-sm text-[var(--tidal)] underline-offset-2 hover:underline"
+              className="underline-offset-2 hover:underline"
+              style={{ color: service === "spotify" ? "var(--spotify)" : "var(--tidal)" }}
             >
-              Open {title} Developer Dashboard ↗
-            </a>
-          ) : null}
+              Developer App
+            </a>{" "}
+            als Redirect URI eintragen.
+          </p>
         </div>
 
         <form onSubmit={save} className="grid gap-3">

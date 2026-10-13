@@ -13,7 +13,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen grid grid-cols-[72px_1fr]">
-      <aside className="border-r border-[var(--border)] bg-black/30 flex flex-col items-center py-6 gap-3">
+      <aside className="sticky top-0 h-screen border-r border-[var(--border)] bg-black/30 flex flex-col items-center py-6 gap-3">
         <Link
           href="/dashboard"
           className="mb-4 grid h-11 w-11 place-items-center rounded-2xl bg-[linear-gradient(135deg,#1ed760,#00d4ff)] text-black font-bold"
@@ -40,7 +40,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           );
         })}
       </aside>
-      <div className="min-w-0">{children}</div>
+      <div className="min-w-0 relative z-0">{children}</div>
     </div>
   );
 }

@@ -26,7 +26,7 @@ export async function GET() {
     },
     dashboards: {
       spotify: "https://developer.spotify.com/dashboard",
-      tidal: "https://developer.tidal.com",
+      tidal: "https://developer.tidal.com/dashboard",
     },
   });
 }
