@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { ProgressBar } from "@/components/ProgressBar";
 import { ServiceBadge } from "@/components/ServiceBadge";
@@ -17,6 +17,44 @@ export default function DashboardPage() {
   const showOnboarding = Boolean(setup && !setup.hasPairs);
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncingMap, setSyncingMap] = useState<Record<string, boolean>>({});
+  const [modeFilter, setModeFilter] = useState("all");
+  const [groupBy, setGroupBy] = useState<"mode" | "destination" | "status">("mode");
+  const [sortBy, setSortBy] = useState<"name" | "songs" | "recent">("name");
+  const [view, setView] = useState<"list" | "tiles">("tiles");
+
+  const rateLimited = useMemo(
+    () => pairs.filter((p) => (p.lastError || "").includes("429")).length,
+    [pairs],
+  );
+  const groups = useMemo(() => {
+    const filtered =
+      modeFilter === "all"
+        ? pairs
+        : modeFilter === "error"
+          ? pairs.filter((p) => p.status === "error")
+          : pairs.filter((p) => (p.syncMode || "additive") === modeFilter);
+    const buckets = new Map<string, typeof pairs>();
+    for (const pair of filtered) {
+      const key = groupKey(pair, groupBy);
+      const list = buckets.get(key) || [];
+      list.push(pair);
+      buckets.set(key, list);
+    }
+    const order =
+      groupBy === "destination"
+        ? ["tidal", "spotify_2"]
+        : groupBy === "status"
+          ? ["error", "syncing", "idle"]
+          : MODE_ORDER;
+    return order
+      .filter((key) => buckets.has(key))
+      .concat([...buckets.keys()].filter((key) => !order.includes(key)))
+      .map((key) => ({
+        key,
+        label: groupLabel(groupBy, key),
+        pairs: [...(buckets.get(key) || [])].sort((a, b) => comparePairs(a, b, sortBy)),
+      }));
+  }, [pairs, modeFilter, groupBy, sortBy]);
 
   async function syncPair(id: string) {
     setSyncingMap((prev) => ({ ...prev, [id]: true }));
@@ -172,169 +210,107 @@ export default function DashboardPage() {
           </p>
         ) : null}
 
-        {/* Playlist Pairs List */}
-        <div className="mt-6 space-y-3.5">
-          {pairs.map((pair, i) => {
-            const isSpotifySpotify = pair.pairType === "spotify_spotify";
-            const isPairActive =
-              pair.status === "syncing" ||
-              (data?.activeJob && data.activeJob.pairId === pair.id);
-            const isQueued = syncingMap[pair.id];
-            const coverUrl = pair.coverImages?.[0];
-            const spotifyUrl = getPlaylistWebUrl(
-              "spotify",
-              pair.spotifyPlaylistId,
-              pair.spotifyPlaylistUrl,
-            );
-            const sideBUrl = isSpotifySpotify
-              ? getPlaylistWebUrl("spotify", pair.spotify2PlaylistId, pair.spotify2PlaylistUrl)
-              : getPlaylistWebUrl("tidal", pair.tidalPlaylistId, pair.tidalPlaylistUrl);
+        {rateLimited > 3 ? (
+          <p className="mt-6 rounded-2xl border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-4 py-3 text-sm text-[var(--danger)]">
+            Tidal/Spotify hat das API-Limit erreicht ({rateLimited} Playlists). Ein paar Minuten
+            warten, dann einzelne Paare synchronisieren — nicht alle auf einmal.
+          </p>
+        ) : null}
 
-            return (
-              <article
-                key={pair.id}
-                className={`rise flex flex-col gap-4 rounded-3xl border p-4.5 sm:flex-row sm:items-center sm:justify-between transition ${
-                  isPairActive
-                    ? "border-[var(--spotify)] bg-[var(--bg-panel)] shadow-[0_0_20px_rgba(30,215,96,0.15)]"
-                    : "border-[var(--border)] bg-[var(--bg-panel)]/90 hover:border-white/30"
-                }`}
-                style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
-              >
-                <div className="flex items-center gap-4 min-w-0 flex-1">
-                  {/* Cover Art */}
-                  {coverUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={coverUrl}
-                      alt=""
-                      className="h-14 w-14 shrink-0 rounded-2xl object-cover bg-[#222]"
-                    />
-                  ) : (
-                    <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-black/40 text-[var(--muted)] text-xl border border-[var(--border)]">
-                      ♫
-                    </div>
-                  )}
+        {pairs.length > 0 ? (
+          <div className="mt-5 flex flex-col gap-3">
+            <div className="flex flex-wrap gap-2">
+              {[
+                ["all", `Alle (${pairs.length})`],
+                ["additive", "Additive"],
+                ["mirror", "Mirror"],
+                ["one_way_a_to_b", "Einweg A→B"],
+                ["error", "Fehler"],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setModeFilter(id)}
+                  className={`rounded-full border px-3 py-1 text-xs ${
+                    modeFilter === id
+                      ? "border-white bg-white text-black"
+                      : "border-[var(--border)] text-[var(--muted)] hover:text-white"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <label className="text-[var(--muted)]">
+                Gruppieren
+                <select
+                  value={groupBy}
+                  onChange={(e) => setGroupBy(e.target.value as typeof groupBy)}
+                  className="ml-2 rounded-xl border border-[var(--border)] bg-[var(--bg-panel)] px-2 py-1.5 text-white"
+                >
+                  <option value="destination">Ziel</option>
+                  <option value="mode">Sync-Modus</option>
+                  <option value="status">Status</option>
+                </select>
+              </label>
+              <label className="text-[var(--muted)]">
+                Sortieren
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                  className="ml-2 rounded-xl border border-[var(--border)] bg-[var(--bg-panel)] px-2 py-1.5 text-white"
+                >
+                  <option value="name">Name</option>
+                  <option value="songs">Songs</option>
+                  <option value="recent">Zuletzt</option>
+                </select>
+              </label>
+              <div className="ml-auto flex rounded-xl border border-[var(--border)] p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setView("list")}
+                  className={`rounded-lg px-3 py-1 ${view === "list" ? "bg-white text-black" : "text-[var(--muted)]"}`}
+                >
+                  Liste
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setView("tiles")}
+                  className={`rounded-lg px-3 py-1 ${view === "tiles" ? "bg-white text-black" : "text-[var(--muted)]"}`}
+                >
+                  Kacheln
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <Link
-                        href={`/pairs/${pair.id}`}
-                        className="text-base font-semibold text-white hover:text-[var(--spotify)] transition truncate max-w-md"
-                        title={pair.name}
-                      >
-                        {pair.name}
-                      </Link>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="rounded-full bg-black/40 border border-[var(--border)] px-2 py-0.5 text-[10px] text-[var(--muted)] uppercase tracking-wider">
-                          {pair.syncMode === "mirror"
-                            ? "Mirror"
-                            : pair.syncMode?.startsWith("one_way")
-                              ? "Einweg"
-                              : "Additive"}
-                        </span>
-                        {isPairActive ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--spotify)]/10 border border-[var(--spotify)]/30 px-2 py-0.5 text-xs text-[var(--spotify)] font-medium">
-                            <span className="h-1.5 w-1.5 rounded-full bg-[var(--spotify)] animate-ping" />
-                            Sync…
-                          </span>
-                        ) : pair.status === "error" ? (
-                          <span className="rounded-full bg-[var(--danger)]/15 border border-[var(--danger)]/40 px-2 py-0.5 text-xs text-[var(--danger)] font-medium">
-                            Fehler
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-white/5 border border-white/10 px-2 py-0.5 text-xs text-[var(--muted)]">
-                            Bereit
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Platform links and timestamps */}
-                    <div className="mt-2 flex flex-wrap items-center gap-2.5 text-xs text-[var(--muted)]">
-                      <span>
-                        {pair.songCount} {pair.songCount === 1 ? "Song" : "Songs"}
-                      </span>
-                      <span>·</span>
-                      <div className="flex items-center gap-1.5">
-                        <a
-                          href={spotifyUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 hover:text-[var(--spotify)] transition"
-                          title={`Auf ${isSpotifySpotify ? "Spotify (Account 1)" : "Spotify"} öffnen ↗`}
-                        >
-                          <ServiceBadge service="spotify" label={isSpotifySpotify ? "Spotify 1" : "Spotify"} />
-                          <span className="text-[11px] underline-offset-2 hover:underline">Öffnen ↗</span>
-                        </a>
-                        <span>·</span>
-                        <a
-                          href={sideBUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 hover:text-white transition"
-                          title={`Auf ${isSpotifySpotify ? "Spotify (Account 2)" : "Tidal"} öffnen ↗`}
-                        >
-                          {isSpotifySpotify ? (
-                            <ServiceBadge service="spotify_2" label="Spotify 2" />
-                          ) : (
-                            <ServiceBadge service="tidal" />
-                          )}
-                          <span className="text-[11px] underline-offset-2 hover:underline">Öffnen ↗</span>
-                        </a>
-                      </div>
-
-                      <span>·</span>
-                      <span>Zuletzt: {formatRelativeTime(pair.lastSyncedAt)}</span>
-                    </div>
-
-                    {pair.heldRemovals && pair.heldRemovals.length > 0 ? (
-                      <p className="mt-2 text-xs text-[var(--accent)] font-medium">
-                        Notbremse aktiv: {pair.heldRemovals.length} Löschungen gestoppt —{" "}
-                        <Link href={`/pairs/${pair.id}`} className="underline">
-                          In Details freigeben
-                        </Link>
-                      </p>
-                    ) : null}
-
-                    {pair.lastError && (!pair.heldRemovals || pair.heldRemovals.length === 0) ? (
-                      <p className="mt-2 text-xs text-[var(--danger)] line-clamp-1">
-                        {formatApiError(pair.lastError)}
-                      </p>
-                    ) : null}
-
-                    {pair.unmatchedCount > 0 ? (
-                      <p className="mt-1.5 text-xs text-[var(--accent)]">
-                        {pair.unmatchedCount} ohne Treffer —{" "}
-                        <Link href={`/pairs/${pair.id}`} className="underline">
-                          Details ansehen
-                        </Link>
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-2 sm:self-center shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => syncPair(pair.id)}
-                    disabled={isPairActive || isQueued}
-                    className="rounded-xl border border-[var(--border)] px-3.5 py-2 text-xs font-medium text-white hover:border-[var(--spotify)] hover:text-white transition disabled:opacity-40"
-                  >
-                    {isPairActive ? "Läuft…" : isQueued ? "Eingereiht" : "Jetzt synchronisieren"}
-                  </button>
-                  <Link
-                    href={`/pairs/${pair.id}`}
-                    className="rounded-xl border border-white/20 bg-white/10 px-3.5 py-2 text-xs font-semibold text-white hover:bg-white/20 hover:border-white transition"
-                  >
-                    Details
-                  </Link>
-                </div>
-              </article>
-            );
-          })}
-
+        <div className="mt-6 space-y-8">
+          {groups.map((group) => (
+            <section key={group.key}>
+              <h2 className="mb-3 text-sm font-semibold text-[var(--muted)]">
+                {group.label}
+                <span className="ml-2 text-xs font-normal">{group.pairs.length}</span>
+              </h2>
+              <div className={view === "tiles" ? "grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" : "space-y-2"}>
+                {group.pairs.map((pair) => (
+                  <PairRow
+                    key={pair.id}
+                    pair={pair}
+                    view={view}
+                    active={
+                      pair.status === "syncing" ||
+                      Boolean(data?.activeJob && data.activeJob.pairId === pair.id)
+                    }
+                    queued={Boolean(syncingMap[pair.id])}
+                    hideSharedRateLimit={rateLimited > 3}
+                    onSync={() => syncPair(pair.id)}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
           {!pairs.length && !error && canPair && !showOnboarding ? (
             <div className="rounded-3xl border border-dashed border-[var(--border)] p-12 text-center text-[var(--muted)]">
               <p className="text-base font-medium text-white">Noch keine Playlist-Paare angelegt.</p>
@@ -385,5 +361,188 @@ function OnboardingStep({
         <span className={done ? "text-white" : ""}>{label}</span>
       </Link>
     </li>
+  );
+}
+
+const MODE_ORDER = ["additive", "mirror", "one_way_a_to_b", "one_way_b_to_a"];
+
+function modeLabel(mode: string) {
+  if (mode === "mirror") return "Mirror";
+  if (mode === "one_way_a_to_b") return "Einweg A → B";
+  if (mode === "one_way_b_to_a") return "Einweg B → A";
+  return "Additive";
+}
+
+function destinationKey(pair: { pairType?: string }) {
+  return pair.pairType === "spotify_spotify" ? "spotify_2" : "tidal";
+}
+
+function groupKey(
+  pair: { pairType?: string; syncMode?: string; status: string },
+  groupBy: "destination" | "mode" | "status",
+) {
+  if (groupBy === "destination") return destinationKey(pair);
+  if (groupBy === "status") {
+    if (pair.status === "syncing" || pair.status === "matching") return "syncing";
+    if (pair.status === "error") return "error";
+    return "idle";
+  }
+  return pair.syncMode || "additive";
+}
+
+function groupLabel(groupBy: "destination" | "mode" | "status", key: string) {
+  if (groupBy === "destination") return key === "spotify_2" ? "Ziel: Spotify 2" : "Ziel: Tidal";
+  if (groupBy === "status") {
+    if (key === "error") return "Fehler";
+    if (key === "syncing") return "Läuft";
+    return "Bereit";
+  }
+  return modeLabel(key);
+}
+
+function comparePairs(
+  a: { name: string; songCount: number; lastSyncedAt: string | null },
+  b: { name: string; songCount: number; lastSyncedAt: string | null },
+  sortBy: "name" | "songs" | "recent",
+) {
+  if (sortBy === "songs") return b.songCount - a.songCount || a.name.localeCompare(b.name);
+  if (sortBy === "recent") {
+    const at = a.lastSyncedAt ? new Date(a.lastSyncedAt).getTime() : 0;
+    const bt = b.lastSyncedAt ? new Date(b.lastSyncedAt).getTime() : 0;
+    return bt - at || a.name.localeCompare(b.name);
+  }
+  return a.name.localeCompare(b.name);
+}
+
+function PairRow({
+  pair,
+  view,
+  active,
+  queued,
+  hideSharedRateLimit,
+  onSync,
+}: {
+  view: "list" | "tiles";
+  pair: {
+    id: string;
+    name: string;
+    pairType?: string;
+    songCount: number;
+    status: string;
+    lastSyncedAt: string | null;
+    lastError: string | null;
+    unmatchedCount: number;
+    coverImages: string[] | null;
+    spotifyPlaylistId?: string | null;
+    tidalPlaylistId?: string | null;
+    spotify2PlaylistId?: string | null;
+    spotifyPlaylistUrl?: string | null;
+    tidalPlaylistUrl?: string | null;
+    spotify2PlaylistUrl?: string | null;
+    heldRemovals?: Array<{ title: string; artists: string[]; from: string }> | null;
+  };
+  active: boolean;
+  queued: boolean;
+  hideSharedRateLimit: boolean;
+  onSync: () => void;
+}) {
+  const spotifySpotify = pair.pairType === "spotify_spotify";
+  const cover = pair.coverImages?.[0];
+  const spotifyUrl = getPlaylistWebUrl("spotify", pair.spotifyPlaylistId, pair.spotifyPlaylistUrl);
+  const sideBUrl = spotifySpotify
+    ? getPlaylistWebUrl("spotify", pair.spotify2PlaylistId, pair.spotify2PlaylistUrl)
+    : getPlaylistWebUrl("tidal", pair.tidalPlaylistId, pair.tidalPlaylistUrl);
+  const sharedLimit = hideSharedRateLimit && (pair.lastError || "").includes("429");
+
+  if (view === "tiles") {
+    return (
+      <article className="flex flex-col rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] p-2">
+        <Link href={`/pairs/${pair.id}`} className="block">
+          {cover ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={cover} alt="" className="aspect-square w-full rounded-xl object-cover" />
+          ) : (
+            <div className="grid aspect-square w-full place-items-center rounded-xl bg-black/40 text-2xl text-[var(--muted)]">
+              ♫
+            </div>
+          )}
+          <p className="mt-2 truncate text-sm font-medium">{pair.name}</p>
+        </Link>
+        <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[var(--muted)]">
+          <span>{pair.songCount} Songs</span>
+          <a href={sideBUrl} target="_blank" rel="noreferrer">
+            {spotifySpotify ? <ServiceBadge service="spotify_2" /> : <ServiceBadge service="tidal" />}
+          </a>
+        </div>
+        {pair.status === "error" && !sharedLimit ? (
+          <p className="mt-1 line-clamp-2 text-[11px] text-[var(--danger)]">{formatApiError(pair.lastError)}</p>
+        ) : null}
+        <button
+          type="button"
+          onClick={onSync}
+          disabled={active || queued}
+          className="mt-2 rounded-lg border border-[var(--border)] py-1 text-xs disabled:opacity-40"
+        >
+          {active ? "Läuft" : "Sync"}
+        </button>
+      </article>
+    );
+  }
+
+  return (
+    <article className="flex items-center gap-3 rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] px-3 py-2.5">
+      {cover ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={cover} alt="" className="h-11 w-11 shrink-0 rounded-xl object-cover" />
+      ) : (
+        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-black/40 text-[var(--muted)]">
+          ♫
+        </div>
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <Link href={`/pairs/${pair.id}`} className="truncate font-medium hover:text-[var(--spotify)]">
+            {pair.name}
+          </Link>
+          {active ? (
+            <span className="text-xs text-[var(--spotify)]">Sync…</span>
+          ) : pair.status === "error" && !sharedLimit ? (
+            <span className="text-xs text-[var(--danger)]">Fehler</span>
+          ) : null}
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
+          <span>{pair.songCount} Songs</span>
+          <a href={spotifyUrl} target="_blank" rel="noreferrer">
+            <ServiceBadge service="spotify" label={spotifySpotify ? "Spotify 1" : "Spotify"} />
+          </a>
+          <a href={sideBUrl} target="_blank" rel="noreferrer">
+            {spotifySpotify ? (
+              <ServiceBadge service="spotify_2" />
+            ) : (
+              <ServiceBadge service="tidal" />
+            )}
+          </a>
+          <span>{formatRelativeTime(pair.lastSyncedAt)}</span>
+        </div>
+        {pair.heldRemovals?.length ? (
+          <p className="mt-1 text-xs text-[var(--accent)]">
+            {pair.heldRemovals.length} Löschungen gestoppt
+          </p>
+        ) : null}
+        {pair.lastError && !sharedLimit && !pair.heldRemovals?.length ? (
+          <p className="mt-1 line-clamp-1 text-xs text-[var(--danger)]">
+            {formatApiError(pair.lastError)}
+          </p>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        onClick={onSync}
+        disabled={active || queued}
+        className="shrink-0 rounded-xl border border-[var(--border)] px-3 py-2 text-xs disabled:opacity-40"
+      >
+        {active ? "Läuft" : queued ? "…" : "Sync"}
+      </button>
+    </article>
   );
 }

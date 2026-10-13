@@ -884,8 +884,11 @@ export default function NewPairPage() {
 
               {/* Sync mode cards */}
               <div>
-                <p className="text-sm font-medium text-white">Synchronisations-Modus</p>
-                <div className="mt-2 grid gap-2.5 sm:grid-cols-3">
+                <p className="text-sm font-medium text-white">Sync-Einstellungen</p>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Gilt für dieses Paar. Später auf der Detailseite änderbar.
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   <button
                     type="button"
                     onClick={() => setSyncMode("additive")}
@@ -928,6 +931,20 @@ export default function NewPairPage() {
                     <strong className="text-white block">Einweg (Master → Replica)</strong>
                     <p className="mt-1 text-xs text-[var(--muted)]">
                       Quelle bestimmt den Inhalt exakt 1:1. Quelle bleibt unberührt.
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSyncMode("one_way_b_to_a")}
+                    className={`rounded-2xl border p-3.5 text-left text-sm transition ${
+                      syncMode === "one_way_b_to_a"
+                        ? "border-[var(--accent)] bg-black/30 shadow-sm"
+                        : "border-[var(--border)] hover:border-white/30"
+                    }`}
+                  >
+                    <strong className="text-white block">Einweg (Ziel → Quelle)</strong>
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Das Ziel schreibt zurück. Die Zielseite bleibt unberührt.
                     </p>
                   </button>
                 </div>
