@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { ProgressBar } from "@/components/ProgressBar";
 import { ServiceBadge } from "@/components/ServiceBadge";
 import { formatApiError } from "@/lib/format-error";
 import { formatRelativeTime, getPlaylistWebUrl } from "@/lib/format-date";
@@ -84,6 +85,16 @@ function PairDetailInner() {
       .catch((e) => setError(formatApiError(e)))
       .finally(() => setLoading(false));
   }, [load]);
+
+  const jobInProgress = jobs.some((job) => job.status === "running" || job.status === "queued");
+
+  useEffect(() => {
+    if (!jobInProgress && !syncing) return;
+    const timer = setInterval(() => {
+      void load();
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [jobInProgress, syncing, load]);
 
   useEffect(() => {
     if (search.get("preview") === "1" && pair) {
@@ -516,8 +527,18 @@ function PairDetailInner() {
           <div className="mt-6 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5.5">
             <h2 className="font-semibold text-base text-white">Letzte Sync-Läufe</h2>
             <div className="mt-3 divide-y divide-[var(--border)] text-xs">
-              {jobs.slice(0, 5).map((job) => (
-                <div key={job.id} className="py-2.5 flex items-center justify-between gap-3">
+              {jobs.slice(0, 5).map((job) => {
+                const running = job.status === "running" || job.status === "queued";
+                const percent =
+                  job.total > 0 ? Math.round((job.processed / job.total) * 100) : running ? 8 : 0;
+                const idleCounts =
+                  job.addedSpotify === 0 &&
+                  job.addedTidal === 0 &&
+                  job.removedSpotify === 0 &&
+                  job.removedTidal === 0;
+                return (
+                <div key={job.id} className="py-2.5">
+                  <div className="flex items-center justify-between gap-3">
                   <div>
                     <span className="font-medium text-white">{formatRelativeTime(job.createdAt)}</span>
                     <span className="text-[var(--muted)] ml-2">
@@ -545,15 +566,24 @@ function PairDetailInner() {
                     {job.removedTidal > 0 ? (
                       <span className="text-[var(--danger)]">-{job.removedTidal} Tidal</span>
                     ) : null}
-                    {job.addedSpotify === 0 &&
-                    job.addedTidal === 0 &&
-                    job.removedSpotify === 0 &&
-                    job.removedTidal === 0 ? (
+                    {!running && idleCounts ? (
                       <span className="text-[var(--muted)]">Keine Änderungen</span>
                     ) : null}
+                    {running ? (
+                      <span className="text-[var(--muted)]">
+                        {job.total > 0 ? `${job.processed}/${job.total}` : "Startet…"}
+                      </span>
+                    ) : null}
                   </div>
+                  </div>
+                  {running ? (
+                    <div className="mt-2">
+                      <ProgressBar value={percent} />
+                    </div>
+                  ) : null}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ) : null}
