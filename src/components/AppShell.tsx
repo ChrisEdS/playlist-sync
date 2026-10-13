@@ -46,7 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   return (
-    <div className="min-h-screen md:grid md:grid-cols-[160px_1fr]">
+    <div className="min-h-screen md:grid md:grid-cols-[190px_1fr]">
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex sticky top-0 h-screen border-r border-[var(--border)] bg-black/30 flex-col px-3 py-6 gap-2">
         <Link

@@ -214,6 +214,40 @@ export async function listSpotifyPlaylists(
   return items;
 }
 
+async function fetchFollowedSpotifyPlaylistTracks(playlistId: string): Promise<NormalizedTrack[]> {
+  const embedRes = await fetch(`https://open.spotify.com/embed/playlist/${playlistId}`, {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+  });
+  if (!embedRes.ok) {
+    throw new Error(`Spotify embed fallback failed: ${embedRes.status}`);
+  }
+  const html = await embedRes.text();
+  const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">([^<]+)<\/script>/);
+  if (!match) {
+    throw new Error("Spotify embed track list could not be parsed");
+  }
+  const parsed = JSON.parse(match[1]);
+  const entity = parsed.props?.pageProps?.state?.data?.entity;
+  const trackList = entity?.trackList || [];
+  return trackList.map(
+    (t: { uri: string; title: string; subtitle?: string; duration?: number }) => ({
+      id: t.uri.replace("spotify:track:", ""),
+      title: t.title,
+      artists: t.subtitle
+        ? t.subtitle
+            .split(/[,&]/)
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : ["Unknown"],
+      durationMs: t.duration || 0,
+      uri: t.uri,
+    }),
+  );
+}
+
 export async function getSpotifyPlaylistTracks(
   playlistId: string,
   account: SpotifyAccountSlot = "spotify",
@@ -245,30 +279,43 @@ export async function getSpotifyPlaylistTracks(
     }
     return tracks;
   } catch (err) {
-    // If /items failed (e.g. 403 on older app or different permissions), retry with /tracks
-    url = `/playlists/${playlistId}/tracks?limit=100`;
-    tracks.length = 0;
-    while (url) {
-      const page: SpotifyTracksPage = await spotifyFetch<SpotifyTracksPage>(
-        url.startsWith("http") ? url.replace(API, "") : url,
-        account,
-      );
-      for (const item of page.items || []) {
-        const t = item.track || item.item;
-        if (!t?.id) continue;
-        tracks.push({
-          id: t.id,
-          isrc: t.external_ids?.isrc,
-          title: t.name,
-          artists: t.artists?.map((a: { name: string }) => a.name) || [],
-          durationMs: t.duration_ms,
-          album: t.album?.name,
-          uri: t.uri,
-        });
-      }
-      url = page.next ? page.next.replace(API, "") : null;
+    // If standard API returned 403 (happens on followed/non-owned playlists due to Spotify policy),
+    // try the public embed fallback which reliably provides track list for public playlists.
+    try {
+      const fallbackTracks = await fetchFollowedSpotifyPlaylistTracks(playlistId);
+      if (fallbackTracks.length > 0) return fallbackTracks;
+    } catch {
+      // Continue to retry legacy /tracks
     }
-    return tracks;
+
+    // Retry legacy /tracks endpoint as secondary fallback
+    try {
+      url = `/playlists/${playlistId}/tracks?limit=100`;
+      tracks.length = 0;
+      while (url) {
+        const page: SpotifyTracksPage = await spotifyFetch<SpotifyTracksPage>(
+          url.startsWith("http") ? url.replace(API, "") : url,
+          account,
+        );
+        for (const item of page.items || []) {
+          const t = item.track || item.item;
+          if (!t?.id) continue;
+          tracks.push({
+            id: t.id,
+            isrc: t.external_ids?.isrc,
+            title: t.name,
+            artists: t.artists?.map((a: { name: string }) => a.name) || [],
+            durationMs: t.duration_ms,
+            album: t.album?.name,
+            uri: t.uri,
+          });
+        }
+        url = page.next ? page.next.replace(API, "") : null;
+      }
+      return tracks;
+    } catch {
+      throw err;
+    }
   }
 }
 
