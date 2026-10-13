@@ -221,20 +221,20 @@ async function loadReconcileState(pairId: string) {
 export async function previewPlaylistPair(pairId: string): Promise<SyncPlan> {
   const state = await loadReconcileState(pairId);
   const sampleAdds: SyncPlan["sampleAdds"] = [];
-  for (const key of state.addToSpotify.slice(0, 8)) {
+  for (const key of state.addToSpotify.slice(0, 100)) {
     const t = state.tidalMap.get(key);
     if (t) sampleAdds.push({ title: t.title, artists: t.artists, to: "spotify" });
   }
-  for (const key of state.addToTidal.slice(0, 8)) {
+  for (const key of state.addToTidal.slice(0, 100)) {
     const t = state.spotifyMap.get(key);
     if (t) sampleAdds.push({ title: t.title, artists: t.artists, to: "tidal" });
   }
   const sampleRemoves: SyncPlan["sampleRemoves"] = [];
-  for (const key of state.removeFromSpotify.slice(0, 8)) {
+  for (const key of state.removeFromSpotify.slice(0, 100)) {
     const t = state.spotifyMap.get(key);
     if (t) sampleRemoves.push({ title: t.title, artists: t.artists, from: "spotify" });
   }
-  for (const key of state.removeFromTidal.slice(0, 8)) {
+  for (const key of state.removeFromTidal.slice(0, 100)) {
     const t = state.tidalMap.get(key);
     if (t) sampleRemoves.push({ title: t.title, artists: t.artists, from: "tidal" });
   }
@@ -244,8 +244,8 @@ export async function previewPlaylistPair(pairId: string): Promise<SyncPlan> {
     addToTidal: state.addToTidal.length,
     removeFromSpotify: state.removeFromSpotify.length,
     removeFromTidal: state.removeFromTidal.length,
-    sampleAdds: sampleAdds.slice(0, 12),
-    sampleRemoves: sampleRemoves.slice(0, 12),
+    sampleAdds,
+    sampleRemoves,
   };
 }
 

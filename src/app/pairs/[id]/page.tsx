@@ -6,6 +6,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { ServiceBadge } from "@/components/ServiceBadge";
 import { formatApiError } from "@/lib/format-error";
+import { formatRelativeTime, getPlaylistWebUrl } from "@/lib/format-date";
 
 type Plan = {
   syncMode: string;
@@ -20,6 +21,10 @@ type Plan = {
 type Pair = {
   id: string;
   name: string;
+  spotifyPlaylistId: string;
+  tidalPlaylistId: string;
+  spotifyPlaylistUrl?: string | null;
+  tidalPlaylistUrl?: string | null;
   syncMode: string;
   enabled: number;
   status: string;
@@ -30,23 +35,44 @@ type Pair = {
   unmatchedTracks?: Array<{ title: string; artists: string[]; side: string }> | null;
 };
 
+type SyncJob = {
+  id: string;
+  status: string;
+  total: number;
+  processed: number;
+  matched: number;
+  unmatched: number;
+  addedSpotify: number;
+  addedTidal: number;
+  removedSpotify: number;
+  removedTidal: number;
+  error?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  createdAt: string;
+};
+
 function PairDetailInner() {
   const { id } = useParams<{ id: string }>();
   const search = useSearchParams();
   const router = useRouter();
   const [pair, setPair] = useState<Pair | null>(null);
+  const [jobs, setJobs] = useState<SyncJob[]>([]);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [loading, setLoading] = useState(true);
   const [previewing, setPreviewing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmMirror, setConfirmMirror] = useState(false);
+  const [showAllAdds, setShowAllAdds] = useState(false);
+  const [showAllRemoves, setShowAllRemoves] = useState(false);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/pairs/${id}`);
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || "Failed");
     setPair(json.pair);
+    setJobs(json.jobs || []);
   }, [id]);
 
   useEffect(() => {
@@ -68,10 +94,10 @@ function PairDetailInner() {
     try {
       const res = await fetch(`/api/pairs/${id}/preview`, { method: "POST" });
       const json = await res.json();
-      if (!res.ok) throw new Error(formatApiError(json.error || "Preview fehlgeschlagen"));
+      if (!res.ok) throw new Error(formatApiError(json.error || "Vorschau fehlgeschlagen"));
       setPlan(json.plan);
     } catch (e) {
-      setError(formatApiError(e, "Preview fehlgeschlagen"));
+      setError(formatApiError(e, "Vorschau fehlgeschlagen"));
     } finally {
       setPreviewing(false);
     }
@@ -109,7 +135,9 @@ function PairDetailInner() {
   }
 
   async function removePair() {
-    if (!confirm("Remove this playlist pair? Playlists on Spotify/Tidal stay intact.")) return;
+    if (!confirm("Dieses Playlist-Paar entfernen? Deine Playlists auf Spotify und Tidal bleiben unberührt.")) {
+      return;
+    }
     await fetch(`/api/pairs/${id}`, { method: "DELETE" });
     router.push("/dashboard");
   }
@@ -117,7 +145,11 @@ function PairDetailInner() {
   if (loading) {
     return (
       <AppShell>
-        <p className="p-10 text-[var(--muted)]">Loading…</p>
+        <div className="mx-auto max-w-4xl p-6 md:p-10 space-y-4 animate-pulse">
+          <div className="h-4 w-32 bg-white/5 rounded" />
+          <div className="h-8 w-64 bg-white/10 rounded" />
+          <div className="h-40 bg-[var(--bg-panel)] rounded-3xl" />
+        </div>
       </AppShell>
     );
   }
@@ -125,69 +157,109 @@ function PairDetailInner() {
   if (!pair) {
     return (
       <AppShell>
-        <p className="p-10 text-[var(--danger)]">{error || "Not found"}</p>
+        <div className="p-10 text-[var(--danger)]">
+          <p>{error || "Playlist-Paar nicht gefunden"}</p>
+          <Link href="/dashboard" className="mt-4 inline-block text-white underline">
+            Zurück zu Playlists
+          </Link>
+        </div>
       </AppShell>
     );
   }
 
+  const spotifyUrl = getPlaylistWebUrl("spotify", pair.spotifyPlaylistId, pair.spotifyPlaylistUrl);
+  const tidalUrl = getPlaylistWebUrl("tidal", pair.tidalPlaylistId, pair.tidalPlaylistUrl);
+
   return (
     <AppShell>
-      <div className="mx-auto max-w-3xl p-6 md:p-10">
-        <Link href="/dashboard" className="text-sm text-[var(--muted)] hover:text-white">
-          ← Synced Playlists
+      <div className="mx-auto max-w-4xl p-6 md:p-10">
+        <Link href="/dashboard" className="text-xs text-[var(--muted)] hover:text-white transition flex items-center gap-1.5">
+          <span>←</span>
+          <span>Zurück zu den Playlists</span>
         </Link>
-        <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
+
+        {/* Title Header */}
+        <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1
-              className="text-3xl font-semibold"
+              className="text-3xl font-semibold tracking-tight text-white"
               style={{ fontFamily: "var(--font-syne), sans-serif" }}
             >
               {pair.name}
             </h1>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <ServiceBadge service="spotify" />
-              <ServiceBadge service="tidal" />
-              <span className="rounded-full bg-black/40 px-2 py-0.5 text-xs text-[var(--muted)]">
-                {pair.syncMode === "mirror" ? "Mirror" : "Additive"}
+
+            {/* Direct Platform links & Badges */}
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <a
+                href={spotifyUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-black/40 px-3 py-1 text-xs hover:border-[var(--spotify)] transition"
+                title="Auf Spotify öffnen ↗"
+              >
+                <ServiceBadge service="spotify" />
+                <span className="text-white font-medium">Spotify öffnen ↗</span>
+              </a>
+
+              <a
+                href={tidalUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-black/40 px-3 py-1 text-xs hover:border-[var(--tidal)] transition"
+                title="Auf Tidal öffnen ↗"
+              >
+                <ServiceBadge service="tidal" />
+                <span className="text-white font-medium">Tidal öffnen ↗</span>
+              </a>
+
+              <span className="rounded-full bg-black/40 px-2.5 py-1 text-xs text-[var(--muted)] border border-[var(--border)] uppercase tracking-wider text-[10px]">
+                {pair.syncMode === "mirror" ? "Mirror-Sync" : "Additive-Sync"}
+              </span>
+
+              <span className="text-xs text-[var(--muted)]">
+                {pair.songCount} {pair.songCount === 1 ? "Song" : "Songs"}
               </span>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
+
+          {/* Action buttons */}
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
             <button
               onClick={runPreview}
               disabled={previewing}
-              className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm"
+              className="rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] px-4 py-2.5 text-sm font-semibold hover:border-white transition disabled:opacity-40"
             >
-              {previewing ? "Preview…" : "Dry-run"}
+              {previewing ? "Prüfe Änderungen…" : "Differenz-Vorschau"}
             </button>
             <button
               onClick={() => void startSync()}
               disabled={syncing}
-              className="rounded-xl bg-[var(--spotify)] px-4 py-2 text-sm font-semibold text-black"
+              className="rounded-2xl bg-[var(--spotify)] px-5 py-2.5 text-sm font-semibold text-black hover:brightness-110 transition disabled:opacity-40 shadow-[0_10px_30px_rgba(30,215,96,0.2)]"
             >
-              {syncing ? "Starting…" : "Sync now"}
+              {syncing ? "Synchronisiere…" : "Jetzt synchronisieren"}
             </button>
           </div>
         </div>
 
+        {/* Warning if Mirror deletes */}
         {confirmMirror ? (
-          <div className="mt-4 rounded-2xl border border-[var(--danger)]/50 bg-[var(--danger)]/10 p-4 text-sm">
-            <p className="font-medium text-[var(--danger)]">Mirror mode will delete tracks</p>
+          <div className="mt-5 rounded-2xl border border-[var(--danger)]/50 bg-[var(--danger)]/10 p-5 text-sm">
+            <p className="font-semibold text-[var(--danger)]">Mirror-Modus wird Titel entfernen</p>
             <p className="mt-1 text-[var(--muted)]">
-              Removals on one service will be applied to the other. Continue?
+              Im Mirror-Modus werden Songs, die auf einer Seite gelöscht wurden, auch auf der anderen Seite entfernt. Fortfahren?
             </p>
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 flex gap-2.5">
               <button
                 onClick={() => void startSync({ forceMirror: true })}
-                className="rounded-xl bg-[var(--danger)] px-3 py-2 text-sm font-semibold text-white"
+                className="rounded-xl bg-[var(--danger)] px-4 py-2 text-xs font-semibold text-white hover:brightness-110 transition"
               >
-                Yes, mirror sync
+                Ja, im Mirror-Modus synchronisieren
               </button>
               <button
                 onClick={() => setConfirmMirror(false)}
-                className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm"
+                className="rounded-xl border border-[var(--border)] px-4 py-2 text-xs text-white hover:border-white transition"
               >
-                Cancel
+                Abbrechen
               </button>
             </div>
           </div>
@@ -195,38 +267,87 @@ function PairDetailInner() {
 
         {error ? <p className="mt-4 text-sm text-[var(--danger)]">{error}</p> : null}
 
+        {/* Dry-Run / Preview Card */}
         {plan ? (
-          <div className="mt-6 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
-            <h2 className="font-semibold">Preview ({plan.syncMode})</h2>
-            <div className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-              <Stat label="Add → Spotify" value={plan.addToSpotify} />
-              <Stat label="Add → Tidal" value={plan.addToTidal} />
-              <Stat label="Remove Spotify" value={plan.removeFromSpotify} danger />
-              <Stat label="Remove Tidal" value={plan.removeFromTidal} danger />
+          <div className="mt-6 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-base text-white">
+                Erkannte Differenzen ({plan.syncMode === "mirror" ? "Mirror" : "Additive"})
+              </h2>
+              <span className="text-xs text-[var(--muted)]">
+                {plan.addToSpotify + plan.addToTidal + plan.removeFromSpotify + plan.removeFromTidal === 0
+                  ? "Beide Seiten identisch"
+                  : "Änderungen anstehend"}
+              </span>
             </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+              <Stat label="Zu Spotify hinzufügen" value={plan.addToSpotify} />
+              <Stat label="Zu Tidal hinzufügen" value={plan.addToTidal} />
+              <Stat label="Von Spotify entfernen" value={plan.removeFromSpotify} danger />
+              <Stat label="Von Tidal entfernen" value={plan.removeFromTidal} danger />
+            </div>
+
+            {/* List of additions */}
             {plan.sampleAdds.length ? (
-              <div className="mt-4">
-                <p className="text-xs uppercase tracking-wide text-[var(--muted)]">Sample adds</p>
-                <ul className="mt-2 space-y-1 text-sm">
-                  {plan.sampleAdds.map((t, i) => (
-                    <li key={i}>
-                      {t.title} — {t.artists.join(", ")}{" "}
-                      <span className="text-[var(--muted)]">→ {t.to}</span>
+              <div className="mt-5 pt-4 border-t border-[var(--border)]">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs uppercase tracking-wider text-[var(--progress)] font-semibold">
+                    Geplante Hinzufügungen ({plan.sampleAdds.length})
+                  </p>
+                  {plan.sampleAdds.length > 8 ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllAdds((v) => !v)}
+                      className="text-xs text-[var(--muted)] hover:text-white underline"
+                    >
+                      {showAllAdds ? "Weniger anzeigen" : `Alle ${plan.sampleAdds.length} anzeigen`}
+                    </button>
+                  ) : null}
+                </div>
+
+                <ul className="mt-2.5 space-y-1.5 text-xs max-h-60 overflow-auto pr-1">
+                  {(showAllAdds ? plan.sampleAdds : plan.sampleAdds.slice(0, 8)).map((t, i) => (
+                    <li key={i} className="flex items-center justify-between p-2 rounded-lg bg-black/20">
+                      <span className="truncate text-white">
+                        <strong className="font-medium">{t.title}</strong> — {t.artists.join(", ")}
+                      </span>
+                      <span className="shrink-0 text-[var(--muted)] ml-2">
+                        → {t.to === "spotify" ? "Spotify" : "Tidal"}
+                      </span>
                     </li>
                   ))}
                 </ul>
               </div>
             ) : null}
+
+            {/* List of removals */}
             {plan.sampleRemoves.length ? (
-              <div className="mt-4">
-                <p className="text-xs uppercase tracking-wide text-[var(--danger)]">
-                  Sample removals
-                </p>
-                <ul className="mt-2 space-y-1 text-sm">
-                  {plan.sampleRemoves.map((t, i) => (
-                    <li key={i}>
-                      {t.title} — {t.artists.join(", ")}{" "}
-                      <span className="text-[var(--muted)]">from {t.from}</span>
+              <div className="mt-4 pt-3 border-t border-[var(--border)]">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs uppercase tracking-wider text-[var(--danger)] font-semibold">
+                    Geplante Entfernungen ({plan.sampleRemoves.length})
+                  </p>
+                  {plan.sampleRemoves.length > 8 ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllRemoves((v) => !v)}
+                      className="text-xs text-[var(--muted)] hover:text-white underline"
+                    >
+                      {showAllRemoves ? "Weniger anzeigen" : `Alle ${plan.sampleRemoves.length} anzeigen`}
+                    </button>
+                  ) : null}
+                </div>
+
+                <ul className="mt-2.5 space-y-1.5 text-xs max-h-60 overflow-auto pr-1">
+                  {(showAllRemoves ? plan.sampleRemoves : plan.sampleRemoves.slice(0, 8)).map((t, i) => (
+                    <li key={i} className="flex items-center justify-between p-2 rounded-lg bg-black/20">
+                      <span className="truncate text-white">
+                        <strong className="font-medium">{t.title}</strong> — {t.artists.join(", ")}
+                      </span>
+                      <span className="shrink-0 text-[var(--danger)] ml-2">
+                        von {t.from === "spotify" ? "Spotify" : "Tidal"}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -235,63 +356,144 @@ function PairDetailInner() {
           </div>
         ) : null}
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
-            <h2 className="font-semibold">Settings</h2>
-            <label className="mt-4 flex items-center gap-3 text-sm">
+        {/* Pair Configuration & Unmatched Tracks Grid */}
+        <div className="mt-6 grid gap-5 md:grid-cols-2">
+          {/* Settings Panel */}
+          <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5.5">
+            <h2 className="font-semibold text-base text-white">Einstellungen</h2>
+
+            <label className="mt-4 flex items-center gap-3 text-sm cursor-pointer">
               <input
                 type="checkbox"
                 checked={pair.enabled === 1}
                 onChange={(e) => patch({ enabled: e.target.checked })}
+                className="accent-[var(--spotify)]"
               />
-              Enabled for cron
+              <span className="text-white">Im automatischen täglichen Cron-Sync berücksichtigen</span>
             </label>
-            <div className="mt-4">
-              <p className="text-sm text-[var(--muted)]">Sync mode</p>
+
+            <div className="mt-4.5">
+              <p className="text-xs text-[var(--muted)] uppercase tracking-wider font-medium">Modus</p>
               <select
-                className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2"
+                className="mt-1.5 w-full rounded-xl border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm text-white outline-none focus:border-[var(--spotify)]"
                 value={pair.syncMode || "additive"}
                 onChange={(e) => patch({ syncMode: e.target.value })}
               >
-                <option value="additive">Additive (no deletes)</option>
-                <option value="mirror">Mirror (incl. deletes)</option>
+                <option value="additive">Additive (Nur hinzufügen, keine Löschungen)</option>
+                <option value="mirror">Mirror (Vollständige Spiegelung inkl. Löschungen)</option>
               </select>
             </div>
-            <p className="mt-4 text-xs text-[var(--muted)]">
-              Last sync:{" "}
-              {pair.lastSyncedAt ? new Date(pair.lastSyncedAt).toLocaleString() : "never"}
-            </p>
-            {pair.lastError ? (
-              <p className="mt-2 text-sm text-[var(--danger)]">{pair.lastError}</p>
-            ) : null}
-            <button
-              onClick={removePair}
-              className="mt-6 text-sm text-[var(--danger)] hover:underline"
-            >
-              Remove pair
-            </button>
+
+            <div className="mt-4.5 text-xs text-[var(--muted)] space-y-1">
+              <p>Zuletzt synchronisiert: {formatRelativeTime(pair.lastSyncedAt)}</p>
+              {pair.lastError ? (
+                <p className="text-[var(--danger)]">Fehler: {pair.lastError}</p>
+              ) : null}
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-[var(--border)]">
+              <button
+                type="button"
+                onClick={removePair}
+                className="text-xs text-[var(--danger)] hover:underline"
+              >
+                Playlist-Paar entfernen (Dateien auf Spotify/Tidal bleiben erhalten)
+              </button>
+            </div>
           </div>
 
-          <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
-            <h2 className="font-semibold">
-              Unmatched ({pair.unmatchedCount || pair.unmatchedTracks?.length || 0})
-            </h2>
+          {/* Unmatched Tracks Panel */}
+          <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5.5">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-base text-white">
+                Nicht gefunden ({pair.unmatchedCount || pair.unmatchedTracks?.length || 0})
+              </h2>
+              <span className="text-xs text-[var(--muted)]">Beim letzten Sync</span>
+            </div>
+
             {pair.unmatchedTracks?.length ? (
-              <ul className="mt-3 max-h-64 space-y-2 overflow-auto text-sm">
-                {pair.unmatchedTracks.map((t, i) => (
-                  <li key={i} className="rounded-xl bg-black/30 px-3 py-2">
-                    <div className="font-medium">{t.title}</div>
-                    <div className="text-[var(--muted)]">
-                      {t.artists.join(", ")} · {t.side}
-                    </div>
-                  </li>
-                ))}
+              <ul className="mt-4 max-h-72 space-y-2.5 overflow-auto text-xs pr-1">
+                {pair.unmatchedTracks.map((t, i) => {
+                  const targetSearchUrl =
+                    t.side === "spotify→tidal"
+                      ? `https://listen.tidal.com/search?q=${encodeURIComponent(`${t.title} ${t.artists[0] || ""}`)}`
+                      : `https://open.spotify.com/search/${encodeURIComponent(`${t.title} ${t.artists[0] || ""}`)}`;
+                  const targetPlatformName = t.side === "spotify→tidal" ? "Tidal" : "Spotify";
+
+                  return (
+                    <li key={i} className="rounded-xl bg-black/30 p-2.5 border border-[var(--border)]/70">
+                      <div className="font-medium text-white truncate">{t.title}</div>
+                      <div className="text-[var(--muted)] mt-0.5 truncate">
+                        {t.artists.join(", ")} · <span className="text-[var(--accent)]">{t.side}</span>
+                      </div>
+                      <div className="mt-2 pt-1.5 border-t border-white/5 flex items-center justify-end">
+                        <a
+                          href={targetSearchUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[11px] text-[var(--spotify)] hover:underline"
+                        >
+                          Auf {targetPlatformName} suchen ↗
+                        </a>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             ) : (
-              <p className="mt-3 text-sm text-[var(--muted)]">No unmatched tracks from last sync.</p>
+              <p className="mt-4 text-xs text-[var(--muted)] py-4">
+                Keine nicht-zugeordneten Songs beim letzten Sync. Alle Titel wurden erfolgreich auf beiden Plattformen abgeglichen.
+              </p>
             )}
           </div>
         </div>
+
+        {/* Sync History Panel */}
+        {jobs.length > 0 ? (
+          <div className="mt-6 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5.5">
+            <h2 className="font-semibold text-base text-white">Letzte Sync-Läufe</h2>
+            <div className="mt-3 divide-y divide-[var(--border)] text-xs">
+              {jobs.slice(0, 5).map((job) => (
+                <div key={job.id} className="py-2.5 flex items-center justify-between gap-3">
+                  <div>
+                    <span className="font-medium text-white">{formatRelativeTime(job.createdAt)}</span>
+                    <span className="text-[var(--muted)] ml-2">
+                      {job.status === "completed"
+                        ? "Abgeschlossen"
+                        : job.status === "failed"
+                          ? "Fehlgeschlagen"
+                          : "In Arbeit"}
+                    </span>
+                    {job.error ? (
+                      <p className="text-[var(--danger)] mt-0.5">{job.error}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="flex items-center gap-2 text-right shrink-0">
+                    {job.addedSpotify > 0 ? (
+                      <span className="text-[var(--progress)]">+{job.addedSpotify} Spotify</span>
+                    ) : null}
+                    {job.addedTidal > 0 ? (
+                      <span className="text-[var(--progress)]">+{job.addedTidal} Tidal</span>
+                    ) : null}
+                    {job.removedSpotify > 0 ? (
+                      <span className="text-[var(--danger)]">-{job.removedSpotify} Spotify</span>
+                    ) : null}
+                    {job.removedTidal > 0 ? (
+                      <span className="text-[var(--danger)]">-{job.removedTidal} Tidal</span>
+                    ) : null}
+                    {job.addedSpotify === 0 &&
+                    job.addedTidal === 0 &&
+                    job.removedSpotify === 0 &&
+                    job.removedTidal === 0 ? (
+                      <span className="text-[var(--muted)]">Keine Änderungen</span>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     </AppShell>
   );
@@ -307,11 +509,11 @@ function Stat({
   danger?: boolean;
 }) {
   return (
-    <div className="rounded-2xl bg-black/30 p-3">
+    <div className="rounded-2xl bg-black/30 p-3 border border-[var(--border)]/60">
       <div className="text-xs text-[var(--muted)]">{label}</div>
       <div
         className="mt-1 text-xl font-semibold"
-        style={{ color: danger && value > 0 ? "var(--danger)" : undefined }}
+        style={{ color: danger && value > 0 ? "var(--danger)" : "var(--text)" }}
       >
         {value}
       </div>

@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { ProgressBar } from "@/components/ProgressBar";
 import { ServiceBadge } from "@/components/ServiceBadge";
 import { useStatus } from "@/hooks/useStatus";
+import { formatRelativeTime, getPlaylistWebUrl } from "@/lib/format-date";
 
 export default function DashboardPage() {
   const { data, error, refresh } = useStatus();
@@ -12,51 +14,96 @@ export default function DashboardPage() {
   const pairs = data?.pairs || [];
   const canPair = Boolean(setup?.ready);
   const showOnboarding = Boolean(setup && !setup.hasPairs);
+  const [syncingAll, setSyncingAll] = useState(false);
+  const [syncingMap, setSyncingMap] = useState<Record<string, boolean>>({});
 
   async function syncPair(id: string) {
-    await fetch(`/api/pairs/${id}/sync`, { method: "POST" });
-    refresh();
+    setSyncingMap((prev) => ({ ...prev, [id]: true }));
+    try {
+      await fetch(`/api/pairs/${id}/sync`, { method: "POST" });
+      refresh();
+    } finally {
+      setTimeout(() => {
+        setSyncingMap((prev) => ({ ...prev, [id]: false }));
+      }, 1000);
+    }
+  }
+
+  async function syncAll() {
+    if (syncingAll) return;
+    setSyncingAll(true);
+    try {
+      await fetch("/api/pairs/sync-all", { method: "POST" });
+      refresh();
+    } finally {
+      setTimeout(() => setSyncingAll(false), 2000);
+    }
   }
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-3xl p-6 md:p-10">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+      <div className="mx-auto max-w-4xl p-6 md:p-10">
+        {/* Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1
               className="text-3xl font-semibold tracking-tight"
               style={{ fontFamily: "var(--font-syne), sans-serif" }}
             >
-              Synced Playlists
+              Synchronisierte Playlists
               {data ? ` (${pairs.length})` : ""}
             </h1>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Spotify ↔ Tidal — standard Additive, optional Mirror
+              Spotify ↔ Tidal — Voll-Sync mit automatischer Differenz-Angleichung
             </p>
           </div>
-          {canPair ? (
-            <Link
-              href="/pairs/new"
-              className="inline-flex items-center justify-center rounded-2xl bg-[linear-gradient(120deg,#b8ff57,#1ed760_45%,#ffe56b)] px-5 py-3 font-semibold text-black shadow-[0_10px_40px_rgba(30,215,96,0.25)]"
-            >
-              + Playlist paaren
-            </Link>
-          ) : (
-            <Link
-              href="/settings"
-              className="inline-flex items-center justify-center rounded-2xl border border-[var(--border)] px-5 py-3 text-sm text-[var(--muted)] hover:border-white hover:text-white"
-            >
-              Setup in Einstellungen abschließen
-            </Link>
-          )}
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            {pairs.length > 0 ? (
+              <button
+                type="button"
+                onClick={syncAll}
+                disabled={syncingAll || Boolean(data?.activeJob)}
+                className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] px-4 py-3 text-sm font-semibold hover:border-white transition disabled:opacity-40"
+              >
+                <span className="text-[var(--spotify)]">⇄</span>
+                <span>{syncingAll ? "Reiht ein…" : "Alle synchronisieren"}</span>
+              </button>
+            ) : null}
+
+            {canPair ? (
+              <Link
+                href="/pairs/new"
+                className="inline-flex items-center justify-center rounded-2xl bg-[linear-gradient(120deg,#b8ff57,#1ed760_45%,#ffe56b)] px-5 py-3 font-semibold text-black shadow-[0_10px_40px_rgba(30,215,96,0.25)] hover:brightness-110 transition"
+              >
+                + Playlist paaren
+              </Link>
+            ) : (
+              <Link
+                href="/settings"
+                className="inline-flex items-center justify-center rounded-2xl border border-[var(--border)] px-5 py-3 text-sm text-[var(--muted)] hover:border-white hover:text-white transition"
+              >
+                Setup in Einstellungen abschließen
+              </Link>
+            )}
+          </div>
         </div>
 
+        {/* Active Sync Card */}
         {data?.activeJob ? (
-          <div className="mt-6 rounded-3xl border border-[var(--spotify)]/30 bg-[var(--bg-panel)] p-5">
-            <p className="text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
-              Sync läuft
-            </p>
-            <p className="mt-2 font-semibold">
+          <div className="mt-6 rounded-3xl border border-[var(--spotify)]/30 bg-[var(--bg-panel)] p-5 shadow-[0_10px_30px_rgba(30,215,96,0.1)]">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[var(--spotify)] font-semibold">
+                <span className="h-2 w-2 rounded-full bg-[var(--spotify)] animate-ping" />
+                Synchronisierung läuft
+              </span>
+              <span className="text-xs text-[var(--muted)]">
+                {data.activeJob.total > 0
+                  ? `${Math.round((data.activeJob.processed / data.activeJob.total) * 100)}%`
+                  : "Vorbereitung…"}
+              </span>
+            </div>
+            <p className="mt-2.5 font-semibold text-lg">
               {data.activePair?.name || data.activeJob.currentTrack || "Playlist-Sync"}
             </p>
             <div className="mt-3">
@@ -67,19 +114,22 @@ export default function DashboardPage() {
                     : 0
                 }
               />
-              <p className="mt-2 text-sm text-[var(--muted)]">
-                {data.activeJob.processed}/{data.activeJob.total || "…"}
-                {data.activeJob.message ? ` · ${data.activeJob.message}` : ""}
-              </p>
+              <div className="mt-2 flex justify-between text-xs text-[var(--muted)]">
+                <span>
+                  {data.activeJob.processed} von {data.activeJob.total || "…"} Titeln verarbeitet
+                </span>
+                <span>{data.activeJob.message || "Gleiche Daten ab…"}</span>
+              </div>
             </div>
           </div>
         ) : null}
 
+        {/* Onboarding Checklist if no pairs yet */}
         {showOnboarding && setup ? (
           <div className="mt-6 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-6">
-            <h2 className="text-lg font-semibold">Loslegen</h2>
+            <h2 className="text-lg font-semibold">Erste Schritte</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Einmalig — danach bleiben deine Paare hier synchron.
+              Einmalig einrichten — danach bleiben deine Playlists automatisch synchron.
             </p>
             <ul className="mt-5 space-y-3">
               <OnboardingStep
@@ -121,66 +171,155 @@ export default function DashboardPage() {
           </p>
         ) : null}
 
-        <div className="mt-6 space-y-3">
-          {pairs.map((pair, i) => (
-            <article
-              key={pair.id}
-              className="rise flex flex-col gap-4 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)]/90 p-4 md:flex-row md:items-center md:justify-between"
-              style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
-            >
-              <Link href={`/pairs/${pair.id}`} className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-3">
-                  <h3 className="truncate text-lg font-semibold">{pair.name}</h3>
-                  <span className="text-sm text-[var(--muted)]">{pair.songCount} songs</span>
-                  <span className="rounded-full bg-black/40 px-2 py-0.5 text-xs text-[var(--muted)]">
-                    {pair.syncMode === "mirror" ? "Mirror" : "Additive"}
-                  </span>
-                  {pair.status === "syncing" ? (
-                    <span className="inline-flex items-center gap-2 text-sm text-[var(--spotify)]">
-                      <span className="h-2 w-2 rounded-full bg-[var(--spotify)]" />
-                      Syncing
-                    </span>
-                  ) : pair.status === "error" ? (
-                    <span className="text-sm text-[var(--danger)]">Error</span>
+        {/* Playlist Pairs List */}
+        <div className="mt-6 space-y-3.5">
+          {pairs.map((pair, i) => {
+            const isPairActive =
+              pair.status === "syncing" ||
+              (data?.activeJob && data.activeJob.pairId === pair.id);
+            const isQueued = syncingMap[pair.id];
+            const coverUrl = pair.coverImages?.[0];
+            const spotifyUrl = getPlaylistWebUrl(
+              "spotify",
+              pair.spotifyPlaylistId,
+              pair.spotifyPlaylistUrl,
+            );
+            const tidalUrl = getPlaylistWebUrl(
+              "tidal",
+              pair.tidalPlaylistId,
+              pair.tidalPlaylistUrl,
+            );
+
+            return (
+              <article
+                key={pair.id}
+                className={`rise flex flex-col gap-4 rounded-3xl border p-4.5 sm:flex-row sm:items-center sm:justify-between transition ${
+                  isPairActive
+                    ? "border-[var(--spotify)] bg-[var(--bg-panel)] shadow-[0_0_20px_rgba(30,215,96,0.15)]"
+                    : "border-[var(--border)] bg-[var(--bg-panel)]/90 hover:border-white/30"
+                }`}
+                style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
+              >
+                <div className="flex items-center gap-4 min-w-0 flex-1">
+                  {/* Cover Art */}
+                  {coverUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={coverUrl}
+                      alt=""
+                      className="h-14 w-14 shrink-0 rounded-2xl object-cover bg-[#222]"
+                    />
                   ) : (
-                    <span className="text-sm text-[var(--muted)]">Idle</span>
+                    <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-black/40 text-[var(--muted)] text-xl border border-[var(--border)]">
+                      ♫
+                    </div>
                   )}
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      <Link
+                        href={`/pairs/${pair.id}`}
+                        className="truncate text-base font-semibold hover:text-[var(--spotify)] transition"
+                      >
+                        {pair.name}
+                      </Link>
+                      <span className="text-xs text-[var(--muted)]">
+                        {pair.songCount} {pair.songCount === 1 ? "Song" : "Songs"}
+                      </span>
+                      <span className="rounded-full bg-black/40 px-2 py-0.5 text-[10px] text-[var(--muted)] uppercase tracking-wider">
+                        {pair.syncMode === "mirror" ? "Mirror" : "Additive"}
+                      </span>
+                      {isPairActive ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-[var(--spotify)] font-medium">
+                          <span className="h-1.5 w-1.5 rounded-full bg-[var(--spotify)] animate-ping" />
+                          Synchronisiert…
+                        </span>
+                      ) : pair.status === "error" ? (
+                        <span className="text-xs text-[var(--danger)]">Fehler</span>
+                      ) : (
+                        <span className="text-xs text-[var(--muted)]">Bereit</span>
+                      )}
+                    </div>
+
+                    {/* Platform links and timestamps */}
+                    <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[var(--muted)]">
+                      <div className="flex items-center gap-1.5">
+                        <a
+                          href={spotifyUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 hover:text-[var(--spotify)] transition"
+                          title="Auf Spotify öffnen ↗"
+                        >
+                          <ServiceBadge service="spotify" />
+                          <span className="text-[11px] underline-offset-2 hover:underline">Öffnen ↗</span>
+                        </a>
+                        <span>·</span>
+                        <a
+                          href={tidalUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 hover:text-[var(--tidal)] transition"
+                          title="Auf Tidal öffnen ↗"
+                        >
+                          <ServiceBadge service="tidal" />
+                          <span className="text-[11px] underline-offset-2 hover:underline">Öffnen ↗</span>
+                        </a>
+                      </div>
+
+                      <span>·</span>
+                      <span>Zuletzt: {formatRelativeTime(pair.lastSyncedAt)}</span>
+                    </div>
+
+                    {pair.lastError ? (
+                      <p className="mt-1.5 text-xs text-[var(--danger)] line-clamp-1">
+                        {pair.lastError}
+                      </p>
+                    ) : null}
+
+                    {pair.unmatchedCount > 0 ? (
+                      <p className="mt-1 text-xs text-[var(--accent)]">
+                        {pair.unmatchedCount} ohne Treffer —{" "}
+                        <Link href={`/pairs/${pair.id}`} className="underline">
+                          Details ansehen
+                        </Link>
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <ServiceBadge service="spotify" />
-                  <ServiceBadge service="tidal" />
-                </div>
-                {pair.lastError ? (
-                  <p className="mt-2 text-xs text-[var(--danger)] line-clamp-2">{pair.lastError}</p>
-                ) : null}
-                  {pair.unmatchedCount > 0 ? (
-                    <p className="mt-1 text-xs text-[var(--accent)]">
-                      {pair.unmatchedCount} unmatched — Details öffnen
-                    </p>
-                  ) : null}
-                </Link>
-                <div className="flex items-center gap-3">
+
+                {/* Actions */}
+                <div className="flex items-center gap-2.5 sm:self-center shrink-0">
                   <button
+                    type="button"
                     onClick={() => syncPair(pair.id)}
-                    className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm hover:border-[var(--spotify)]"
+                    disabled={isPairActive || isQueued}
+                    className="rounded-xl border border-[var(--border)] px-3.5 py-2 text-xs font-medium hover:border-[var(--spotify)] hover:text-white transition disabled:opacity-40"
                   >
-                    Sync now
+                    {isPairActive ? "Läuft…" : isQueued ? "Eingereiht" : "Jetzt synchronisieren"}
                   </button>
                   <Link
                     href={`/pairs/${pair.id}`}
-                    className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-black"
+                    className="rounded-xl bg-white px-3.5 py-2 text-xs font-semibold text-black hover:bg-neutral-200 transition"
                   >
                     Details
                   </Link>
                 </div>
               </article>
-            ))}
+            );
+          })}
 
           {!pairs.length && !error && canPair && !showOnboarding ? (
-            <div className="rounded-3xl border border-dashed border-[var(--border)] p-10 text-center text-[var(--muted)]">
-              Noch keine Playlist-Paare.{" "}
-              <Link href="/pairs/new" className="text-[var(--spotify)]">
-                Erste Playlist paaren
+            <div className="rounded-3xl border border-dashed border-[var(--border)] p-12 text-center text-[var(--muted)]">
+              <p className="text-base font-medium text-white">Noch keine Playlist-Paare angelegt.</p>
+              <p className="mt-1 text-sm">
+                Wähle eine Playlist von Spotify oder Tidal, um den Voll-Sync zu starten.
+              </p>
+              <Link
+                href="/pairs/new"
+                className="mt-4 inline-flex rounded-2xl bg-[var(--spotify)] px-5 py-2.5 text-sm font-semibold text-black hover:brightness-110 transition"
+              >
+                + Erste Playlist paaren
               </Link>
             </div>
           ) : null}
@@ -203,21 +342,21 @@ function OnboardingStep({
     <li>
       <Link
         href={href}
-        className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm ${
+        className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition ${
           done
-            ? "border-[var(--progress)]/30 text-[var(--progress)]"
-            : "border-[var(--border)] hover:border-white"
+            ? "border-[var(--progress)]/30 text-[var(--progress)] bg-[rgba(46,229,157,0.05)]"
+            : "border-[var(--border)] hover:border-white text-[var(--muted)]"
         }`}
       >
         <span
-          className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-xs"
+          className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-xs font-bold"
           style={{
             background: done ? "rgba(46,229,157,0.2)" : "rgba(255,255,255,0.06)",
           }}
         >
           {done ? "✓" : "·"}
         </span>
-        {label}
+        <span className={done ? "text-white" : ""}>{label}</span>
       </Link>
     </li>
   );

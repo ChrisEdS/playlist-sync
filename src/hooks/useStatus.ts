@@ -34,6 +34,10 @@ export type StatusPayload = {
     lastSyncedAt: string | null;
     lastError: string | null;
     enabled: number;
+    spotifyPlaylistId?: string;
+    tidalPlaylistId?: string;
+    spotifyPlaylistUrl?: string | null;
+    tidalPlaylistUrl?: string | null;
     unmatchedTracks?: Array<{ title: string; artists: string[]; side: string }> | null;
   }>;
   jobs: Array<{
