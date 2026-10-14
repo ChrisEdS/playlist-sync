@@ -45,7 +45,7 @@ export const playlistPairs = pgTable("playlist_pairs", {
   spotify2PlaylistUrl: text("spotify2_playlist_url"),
   coverImages: jsonb("cover_images").$type<string[]>().default([]),
   enabled: integer("enabled").notNull().default(1),
-  /** additive (Quelle → Ziel) | mirror | one_way_a_to_b | one_way_b_to_a */
+  /** additive (A→B) | additive_b_to_a (B→A) | mirror | legacy one_way_* */
   syncMode: text("sync_mode").notNull().default("additive"),
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   lastSpotifySnapshotId: text("last_spotify_snapshot_id"),

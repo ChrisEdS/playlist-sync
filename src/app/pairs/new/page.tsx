@@ -13,6 +13,11 @@ import {
   type NamedPlaylist,
 } from "@/lib/matching/playlists";
 import { formatApiError } from "@/lib/format-error";
+import {
+  additiveDescription,
+  directionLabel,
+  syncModeFromSource,
+} from "@/lib/sync/modes";
 
 type Playlist = NamedPlaylist;
 
@@ -48,12 +53,28 @@ export default function NewPairPage() {
     return source === "spotify" ? "tidal" : "spotify";
   }, [pairType, source]);
 
+  const resolvedSyncMode = useMemo(
+    () => syncModeFromSource(source, syncMode),
+    [source, syncMode],
+  );
+
   // Adjust source if pairType changes
   function switchPairType(newType: "spotify_tidal" | "spotify_spotify") {
     setPairType(newType);
     setSource("spotify");
     setSelected("");
     setTargetId("");
+    setCreateTarget(true);
+  }
+
+  function switchDirection(next: "spotify" | "spotify_2" | "tidal") {
+    if (next === source) return;
+    setSource(next);
+    setSelected("");
+    setTargetId("");
+    setCreateTarget(true);
+    setQuery("");
+    setTargetQuery("");
   }
 
   // Map of playlists that are already part of a pair
@@ -221,7 +242,7 @@ export default function NewPairPage() {
           coverImage: playlist.imageUrl,
           createTarget,
           targetPlaylistId: createTarget ? undefined : targetId || undefined,
-          syncMode,
+          syncMode: resolvedSyncMode,
         }),
       });
       const json = await res.json();
@@ -250,7 +271,7 @@ export default function NewPairPage() {
           tidalPlaylistUrl: isSp2 ? undefined : source === "spotify" ? m.target.url : m.source.url,
           spotify2PlaylistUrl: isSp2 ? (source === "spotify" ? m.target.url : m.source.url) : undefined,
           coverImage: m.source.imageUrl || m.target.imageUrl,
-          syncMode,
+          syncMode: resolvedSyncMode,
         };
       });
 
@@ -301,7 +322,7 @@ export default function NewPairPage() {
           </div>
         ) : (
           <>
-            {/* Sync Type Selector (Spotify ↔ Tidal OR Spotify ↔ Spotify) */}
+            {/* Connection type */}
             <div className="mt-6 flex flex-wrap items-center gap-2.5 p-1.5 rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] max-w-xl">
               <button
                 type="button"
@@ -312,7 +333,7 @@ export default function NewPairPage() {
                     : "text-[var(--muted)] hover:text-white"
                 }`}
               >
-                Spotify → Tidal
+                Spotify ↔ Tidal
               </button>
 
               <button
@@ -330,7 +351,7 @@ export default function NewPairPage() {
                 }`}
                 title={!hasSpotify2 ? "Zweitaccount in Einstellungen verbinden" : ""}
               >
-                <span>Spotify 1 → Spotify 2</span>
+                <span>Spotify 1 ↔ Spotify 2</span>
                 {!hasSpotify2 ? (
                   <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-[var(--muted)]">
                     +Account nötig
@@ -339,11 +360,74 @@ export default function NewPairPage() {
               </button>
             </div>
 
-            <p className="mt-5 text-sm text-[var(--muted)]">
-              {pairType === "spotify_spotify"
-                ? "Quelle ist Spotify (Account 1). Spotify (Account 2) wird befüllt und darf leer sein."
-                : "Quelle ist Spotify. Tidal wird befüllt und darf leer sein."}
-            </p>
+            {/* Direction — only meaningful for Quelle → Ziel */}
+            <div className="mt-4 max-w-xl">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
+                Sync-Richtung
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2 p-1.5 rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)]">
+                {pairType === "spotify_tidal" ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => switchDirection("spotify")}
+                      disabled={syncMode === "mirror"}
+                      className={`flex-1 rounded-xl py-2.5 px-3 text-xs font-semibold transition disabled:opacity-40 ${
+                        source === "spotify" && syncMode !== "mirror"
+                          ? "bg-[var(--spotify)] text-black"
+                          : "text-[var(--muted)] hover:text-white"
+                      }`}
+                    >
+                      Spotify → Tidal
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => switchDirection("tidal")}
+                      disabled={syncMode === "mirror"}
+                      className={`flex-1 rounded-xl py-2.5 px-3 text-xs font-semibold transition disabled:opacity-40 ${
+                        source === "tidal" && syncMode !== "mirror"
+                          ? "bg-[var(--spotify)] text-black"
+                          : "text-[var(--muted)] hover:text-white"
+                      }`}
+                    >
+                      Tidal → Spotify
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => switchDirection("spotify")}
+                      disabled={syncMode === "mirror"}
+                      className={`flex-1 rounded-xl py-2.5 px-3 text-xs font-semibold transition disabled:opacity-40 ${
+                        source === "spotify" && syncMode !== "mirror"
+                          ? "bg-[var(--spotify)] text-black"
+                          : "text-[var(--muted)] hover:text-white"
+                      }`}
+                    >
+                      Spotify 1 → Spotify 2
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => switchDirection("spotify_2")}
+                      disabled={syncMode === "mirror"}
+                      className={`flex-1 rounded-xl py-2.5 px-3 text-xs font-semibold transition disabled:opacity-40 ${
+                        source === "spotify_2" && syncMode !== "mirror"
+                          ? "bg-[var(--spotify)] text-black"
+                          : "text-[var(--muted)] hover:text-white"
+                      }`}
+                    >
+                      Spotify 2 → Spotify 1
+                    </button>
+                  </>
+                )}
+              </div>
+              <p className="mt-3 text-sm text-[var(--muted)]">
+                {syncMode === "mirror"
+                  ? "Mirror gleicht beide Seiten an — die Richtung gilt erst wieder für Quelle → Ziel."
+                  : additiveDescription(pairType, resolvedSyncMode)}
+              </p>
+            </div>
 
             {successNotice ? (
               <div className="mt-6 rounded-2xl border border-[var(--progress)]/40 bg-[var(--progress)]/10 p-4 text-sm text-[var(--progress)] font-medium">
@@ -458,11 +542,15 @@ export default function NewPairPage() {
             ) : null}
 
             {/* Filter and View toggles */}
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="mt-6 flex items-center gap-2">
+              <ServiceBadge service={source} label={sourceLabel(source)} />
+              <p className="text-sm text-white font-medium">Quelle wählen</p>
+            </div>
+            <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Playlists durchsuchen…"
+                placeholder={`Playlists auf ${sourceLabel(source)}…`}
                 className="flex-1 rounded-2xl border border-[var(--border)] bg-[var(--bg-panel)] px-4 py-2.5 text-sm outline-none focus:border-[var(--spotify)] transition"
               />
               <div className="flex items-center gap-3">
@@ -684,7 +772,9 @@ export default function NewPairPage() {
                       {syncMode === "mirror" ? "⇄" : "→"}
                     </span>
                     <span className="text-[10px] text-[var(--muted)] uppercase tracking-wider">
-                      {syncMode === "mirror" ? "Mirror" : "Quelle → Ziel"}
+                      {syncMode === "mirror"
+                        ? "Mirror"
+                        : directionLabel(pairType, resolvedSyncMode)}
                     </span>
                   </div>
 
@@ -831,9 +921,9 @@ export default function NewPairPage() {
 
               {/* Sync mode cards */}
               <div>
-                <p className="text-sm font-medium text-white">Sync-Einstellungen</p>
+                <p className="text-sm font-medium text-white">Sync-Modus</p>
                 <p className="mt-1 text-xs text-[var(--muted)]">
-                  Gilt für dieses Paar. Später auf der Detailseite änderbar.
+                  Gilt für dieses Paar. Richtung und Modus sind später auf der Detailseite änderbar.
                 </p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   <button
@@ -847,7 +937,7 @@ export default function NewPairPage() {
                   >
                     <strong className="text-white block">Quelle → Ziel</strong>
                     <p className="mt-1 text-xs text-[var(--muted)]">
-                      Spotify bleibt unverändert. Fehlende Titel werden ins Ziel kopiert, auch in eine neue leere Playlist.
+                      {additiveDescription(pairType, resolvedSyncMode)}
                     </p>
                   </button>
                   <button

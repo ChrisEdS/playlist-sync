@@ -8,6 +8,7 @@ import { ServiceBadge } from "@/components/ServiceBadge";
 import { useStatus } from "@/hooks/useStatus";
 import { formatRelativeTime, getPlaylistWebUrl } from "@/lib/format-date";
 import { formatApiError } from "@/lib/format-error";
+import { directionLabel, isBtoA } from "@/lib/sync/modes";
 
 export default function DashboardPage() {
   const { data, error, refresh } = useStatus();
@@ -81,7 +82,7 @@ export default function DashboardPage() {
               {data ? ` (${pairs.length})` : ""}
             </h1>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Spotify bleibt die Quelle. Tidal und Spotify 2 werden befüllt.
+              Quelle → Ziel in beide Richtungen (Spotify ↔ Tidal) oder Mirror.
             </p>
           </div>
 
@@ -309,7 +310,7 @@ export default function DashboardPage() {
             <div className="rounded-3xl border border-dashed border-[var(--border)] p-12 text-center text-[var(--muted)]">
               <p className="text-base font-medium text-white">Noch keine Playlist-Paare angelegt.</p>
               <p className="mt-1 text-sm">
-                Wähle eine Spotify-Playlist als Quelle. Das Ziel auf Tidal darf leer sein.
+                Wähle Spotify oder Tidal als Quelle — das Ziel darf leer sein.
               </p>
               <Link
                 href="/pairs/new"
@@ -409,6 +410,7 @@ function PairRow({
     id: string;
     name: string;
     pairType?: string;
+    syncMode?: string;
     songCount: number;
     status: string;
     lastSyncedAt: string | null;
@@ -494,16 +496,38 @@ function PairRow({
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
           <span>{pair.songCount} Songs</span>
-          <a href={spotifyUrl} target="_blank" rel="noreferrer">
-            <ServiceBadge service="spotify" label={spotifySpotify ? "Spotify 1" : "Spotify"} />
-          </a>
-          <a href={sideBUrl} target="_blank" rel="noreferrer">
-            {spotifySpotify ? (
-              <ServiceBadge service="spotify_2" />
-            ) : (
-              <ServiceBadge service="tidal" />
-            )}
-          </a>
+          {isBtoA(pair.syncMode) ? (
+            <>
+              <a href={sideBUrl} target="_blank" rel="noreferrer">
+                {spotifySpotify ? (
+                  <ServiceBadge service="spotify_2" />
+                ) : (
+                  <ServiceBadge service="tidal" />
+                )}
+              </a>
+              <span aria-hidden>→</span>
+              <a href={spotifyUrl} target="_blank" rel="noreferrer">
+                <ServiceBadge service="spotify" label={spotifySpotify ? "Spotify 1" : "Spotify"} />
+              </a>
+            </>
+          ) : (
+            <>
+              <a href={spotifyUrl} target="_blank" rel="noreferrer">
+                <ServiceBadge service="spotify" label={spotifySpotify ? "Spotify 1" : "Spotify"} />
+              </a>
+              <span aria-hidden>{pair.syncMode === "mirror" ? "⇄" : "→"}</span>
+              <a href={sideBUrl} target="_blank" rel="noreferrer">
+                {spotifySpotify ? (
+                  <ServiceBadge service="spotify_2" />
+                ) : (
+                  <ServiceBadge service="tidal" />
+                )}
+              </a>
+            </>
+          )}
+          <span className="text-[10px] uppercase tracking-wide">
+            {directionLabel(pair.pairType, pair.syncMode)}
+          </span>
           <span>{formatRelativeTime(pair.lastSyncedAt)}</span>
         </div>
         {pair.heldRemovals?.length ? (

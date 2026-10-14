@@ -10,7 +10,7 @@ const patchSchema = z.object({
   enabled: z.boolean().optional(),
   name: z.string().min(1).optional(),
   syncMode: z
-    .enum(["additive", "mirror", "one_way_a_to_b", "one_way_b_to_a"])
+    .enum(["additive", "additive_b_to_a", "mirror", "one_way_a_to_b", "one_way_b_to_a"])
     .optional(),
 });
 

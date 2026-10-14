@@ -5,6 +5,7 @@ import { requireAuth, jsonError } from "@/lib/api";
 import { getDb, schema } from "@/lib/db";
 import { createSpotifyPlaylist } from "@/lib/providers/spotify";
 import { createTidalPlaylist } from "@/lib/providers/tidal";
+import { syncModeFromSource } from "@/lib/sync/modes";
 
 export const maxDuration = 300;
 
@@ -19,7 +20,7 @@ const createSchema = z.object({
   targetPlaylistId: z.string().optional(),
   createTarget: z.boolean().optional(),
   syncMode: z
-    .enum(["additive", "mirror", "one_way_a_to_b", "one_way_b_to_a"])
+    .enum(["additive", "additive_b_to_a", "mirror", "one_way_a_to_b", "one_way_b_to_a"])
     .optional(),
 });
 
@@ -114,7 +115,13 @@ export async function POST(req: Request) {
         tidalPlaylistUrl,
         spotify2PlaylistUrl,
         coverImages: data.coverImage ? [data.coverImage] : [],
-        syncMode: data.syncMode || "additive",
+        syncMode:
+          data.syncMode === "mirror" ||
+          data.syncMode === "additive_b_to_a" ||
+          data.syncMode === "one_way_b_to_a" ||
+          data.syncMode === "one_way_a_to_b"
+            ? data.syncMode
+            : syncModeFromSource(data.source, data.syncMode || "additive"),
         status: "idle",
         progressPercent: 0,
       })

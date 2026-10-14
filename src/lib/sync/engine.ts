@@ -14,6 +14,7 @@ import {
   removeTracksFromTidalPlaylist,
   searchTidalTrack,
 } from "../providers/tidal";
+import { directionLabel, isAtoB, isBtoA, isMirrorMode } from "./modes";
 
 export type SyncProgress = {
   currentTrack?: string;
@@ -239,10 +240,10 @@ async function loadReconcileState(
   const sideBPlaylistId = isSpotifySpotify ? pair.spotify2PlaylistId : pair.tidalPlaylistId;
 
   if (!sideAPlaylistId) {
-    throw new Error("Quelle (Spotify 1) Playlist-ID fehlt");
+    throw new Error("Spotify-Playlist-ID fehlt");
   }
   if (!sideBPlaylistId) {
-    throw new Error(`Ziel (${sideBName}) Playlist-ID fehlt`);
+    throw new Error(`${sideBName}-Playlist-ID fehlt`);
   }
 
   // Load tracks from both sides concurrently
@@ -264,18 +265,22 @@ async function loadReconcileState(
 
   // SAFETY RAIL 1: Empty-read guard.
   // A brand-new destination playlist is empty on purpose — that is the first copy.
-  // Abort only when a side that already synced comes back empty (API glitch would
-  // otherwise wipe the other side), or when this mode would delete a populated
-  // side because its master read failed before any snapshot exists.
+  // Abort when a source side that already synced comes back empty (API glitch),
+  // or in Mirror when either side glitches empty after a prior sync.
   const previouslySynced = snapshot.size > 3;
-  if (sideATracks.length === 0 && (previouslySynced || (sideBTracks.length > 3 && syncMode === "one_way_a_to_b"))) {
+  if (
+    sideATracks.length === 0 &&
+    previouslySynced &&
+    (isAtoB(syncMode) || isMirrorMode(syncMode))
+  ) {
     throw new Error(
-      "Sicherheitsabbruch: Leere Trackliste auf Seite A (Spotify) erhalten. Möglicher API-Glitch. Sync zum Schutz gestoppt.",
+      "Sicherheitsabbruch: Leere Trackliste auf Spotify erhalten. Möglicher API-Glitch. Sync zum Schutz gestoppt.",
     );
   }
   if (
     sideBTracks.length === 0 &&
-    (previouslySynced || (sideATracks.length > 3 && syncMode === "one_way_b_to_a"))
+    previouslySynced &&
+    (isBtoA(syncMode) || isMirrorMode(syncMode))
   ) {
     throw new Error(
       `Sicherheitsabbruch: Leere Trackliste auf ${sideBName} erhalten. Möglicher API-Glitch. Sync zum Schutz gestoppt.`,
@@ -310,19 +315,18 @@ async function loadReconcileState(
   let removeFromSideA: string[] = [];
   let removeFromSideB: string[] = [];
 
-  if (syncMode === "additive" || syncMode === "one_way_a_to_b") {
-    // Quelle → Ziel: Spotify is only read. Missing tracks are added to the destination.
-    // A new empty destination is the normal first copy. Nothing is deleted here.
+  if (isAtoB(syncMode)) {
+    // Quelle → Ziel: side A (Spotify) is source. Destination may be empty on first copy.
     addToSideA = [];
     removeFromSideA = [];
     addToSideB = [...sideAKeys].filter((k) => !sideBKeys.has(k));
     removeFromSideB = [];
-  } else if (syncMode === "one_way_b_to_a") {
-    // Master-Replica: Side B is master. Side A follows 1:1. Side B never modified.
+  } else if (isBtoA(syncMode)) {
+    // Quelle → Ziel reverse: side B (Tidal / Spotify 2) is source. No deletions.
     addToSideB = [];
     removeFromSideB = [];
     addToSideA = [...sideBKeys].filter((k) => !sideAKeys.has(k));
-    removeFromSideA = [...sideAKeys].filter((k) => !sideBKeys.has(k));
+    removeFromSideA = [];
   } else {
     // Mirror: Two-way mirror (additions & deletions propagate)
     addToSideA = [...desired].filter((k) => !sideAKeys.has(k));
@@ -363,12 +367,7 @@ async function loadReconcileState(
     syncMode,
     sideAMap,
     sideBMap,
-    desired:
-      syncMode === "additive" || syncMode === "one_way_a_to_b"
-        ? sideAKeys
-        : syncMode === "one_way_b_to_a"
-          ? sideBKeys
-          : desired,
+    desired: isAtoB(syncMode) ? sideAKeys : isBtoA(syncMode) ? sideBKeys : desired,
     addToSideA,
     addToSideB,
     removeFromSideA,
@@ -465,12 +464,9 @@ export async function syncPlaylistPair(
 
   progress.total =
     addToSideA.length + removeFromSideA.length + addToSideB.length + removeFromSideB.length;
-  progress.message =
-    syncMode === "additive"
-      ? "Additive Sync…"
-      : syncMode.startsWith("one_way")
-        ? "Einweg-Sync…"
-        : "Mirror Sync…";
+  progress.message = isMirrorMode(syncMode)
+    ? "Mirror Sync…"
+    : `Quelle → Ziel (${directionLabel(pair.pairType, syncMode)})…`;
   await onProgress?.(progress);
 
   // 1. Resolve and add to Side A (Spotify 1)

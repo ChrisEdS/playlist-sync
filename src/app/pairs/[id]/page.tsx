@@ -8,6 +8,15 @@ import { ProgressBar } from "@/components/ProgressBar";
 import { ServiceBadge } from "@/components/ServiceBadge";
 import { formatApiError } from "@/lib/format-error";
 import { formatRelativeTime, getPlaylistWebUrl } from "@/lib/format-date";
+import {
+  additiveDescription,
+  directionLabel,
+  isAdditiveMode,
+  isBtoA,
+  isMirrorMode,
+  modeDisplayName,
+  sideLabels,
+} from "@/lib/sync/modes";
 
 type Plan = {
   syncMode: string;
@@ -77,6 +86,7 @@ function PairDetailInner() {
     Array<{ id: string; title: string; artists: string[]; album: string | null }>
   >([]);
   const [rematchBusy, setRematchBusy] = useState(false);
+  const [rematchDestLabel, setRematchDestLabel] = useState("Tidal");
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/pairs/${id}`);
@@ -168,6 +178,7 @@ function PairDetailInner() {
       const json = await res.json();
       if (!res.ok) throw new Error(formatApiError(json.error || "Suche fehlgeschlagen"));
       setRematchHits(json.hits || []);
+      if (json.destLabel) setRematchDestLabel(json.destLabel);
     } catch (e) {
       setError(formatApiError(e, "Suche fehlgeschlagen"));
     } finally {
@@ -230,12 +241,14 @@ function PairDetailInner() {
   }
 
   const isSpotifySpotify = pair.pairType === "spotify_spotify";
+  const labels = sideLabels(pair.pairType);
   const spotify1Url = getPlaylistWebUrl("spotify", pair.spotifyPlaylistId, pair.spotifyPlaylistUrl);
   const sideBUrl = isSpotifySpotify
     ? getPlaylistWebUrl("spotify", pair.spotify2PlaylistId, pair.spotify2PlaylistUrl)
     : getPlaylistWebUrl("tidal", pair.tidalPlaylistId, pair.tidalPlaylistUrl);
 
   const hasHeldRemovals = Boolean(pair.heldRemovals && pair.heldRemovals.length > 0);
+  const destName = isBtoA(pair.syncMode) ? labels.a : labels.b;
 
   return (
     <AppShell>
@@ -283,8 +296,8 @@ function PairDetailInner() {
                 <span className="text-white font-medium">Öffnen ↗</span>
               </a>
 
-              <span className="rounded-full bg-black/40 px-2.5 py-1 text-xs text-[var(--muted)] border border-[var(--border)] uppercase tracking-wider text-[10px]">
-                {modeName(pair.syncMode)}
+              <span className="rounded-full bg-black/40 px-2.5 py-1 text-[10px] text-[var(--muted)] border border-[var(--border)] tracking-wide">
+                {directionLabel(pair.pairType, pair.syncMode)}
               </span>
 
               <span className="text-xs text-[var(--muted)]">
@@ -364,16 +377,12 @@ function PairDetailInner() {
           <div className="mt-6 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <h2 className="font-semibold text-base text-white">Vorschau</h2>
-              <span className="text-xs text-[var(--muted)]">{modeName(plan.syncMode)}</span>
+              <span className="text-xs text-[var(--muted)]">
+                {modeDisplayName(pair.pairType, plan.syncMode)}
+              </span>
             </div>
             <p className="mt-3 text-sm text-white">
-              {plan.addToTidal > 0
-                ? `${plan.addToTidal} Titel nach ${isSpotifySpotify ? "Spotify 2" : "Tidal"}`
-                : "Nichts zu kopieren"}
-              {plan.addToSpotify > 0 ? ` · ${plan.addToSpotify} zurück zur Quelle` : ""}
-              {plan.removeFromSpotify + plan.removeFromTidal > 0
-                ? ` · ${plan.removeFromSpotify + plan.removeFromTidal} Löschungen`
-                : ""}
+              {previewSummary(plan, labels)}
             </p>
 
             {/* List of additions */}
@@ -474,23 +483,27 @@ function PairDetailInner() {
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <button
               type="button"
-              onClick={() => patch({ syncMode: "additive" })}
+              onClick={() =>
+                patch({
+                  syncMode: isBtoA(pair.syncMode) ? "additive_b_to_a" : "additive",
+                })
+              }
               className={`rounded-2xl border p-3 text-left text-sm ${
-                isSourceToTarget(pair.syncMode)
+                isAdditiveMode(pair.syncMode)
                   ? "border-[var(--spotify)] bg-black/30"
                   : "border-[var(--border)] hover:border-white/40"
               }`}
             >
               <strong>Quelle → Ziel</strong>
               <p className="mt-1 text-xs text-[var(--muted)]">
-                Spotify bleibt unverändert. Fehlende Titel werden ins Ziel kopiert, auch wenn es noch leer ist.
+                {additiveDescription(pair.pairType, pair.syncMode)}
               </p>
             </button>
             <button
               type="button"
               onClick={() => patch({ syncMode: "mirror" })}
               className={`rounded-2xl border p-3 text-left text-sm ${
-                pair.syncMode === "mirror"
+                isMirrorMode(pair.syncMode)
                   ? "border-[var(--danger)] bg-black/30"
                   : "border-[var(--border)] hover:border-white/40"
               }`}
@@ -501,6 +514,38 @@ function PairDetailInner() {
               </p>
             </button>
           </div>
+
+          {isAdditiveMode(pair.syncMode) ? (
+            <div className="mt-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
+                Richtung
+              </p>
+              <div className="mt-2 flex gap-2 p-1 rounded-2xl border border-[var(--border)] bg-black/20">
+                <button
+                  type="button"
+                  onClick={() => patch({ syncMode: "additive" })}
+                  className={`flex-1 rounded-xl py-2 px-3 text-xs font-semibold transition ${
+                    !isBtoA(pair.syncMode)
+                      ? "bg-[var(--spotify)] text-black"
+                      : "text-[var(--muted)] hover:text-white"
+                  }`}
+                >
+                  {labels.a} → {labels.b}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => patch({ syncMode: "additive_b_to_a" })}
+                  className={`flex-1 rounded-xl py-2 px-3 text-xs font-semibold transition ${
+                    isBtoA(pair.syncMode)
+                      ? "bg-[var(--spotify)] text-black"
+                      : "text-[var(--muted)] hover:text-white"
+                  }`}
+                >
+                  {labels.b} → {labels.a}
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4">
             <div className="flex gap-2 text-xs">
@@ -530,19 +575,23 @@ function PairDetailInner() {
               <ul className="mt-4 max-h-96 space-y-2.5 overflow-auto text-xs pr-1">
                 {pair.unmatchedTracks.map((t, i) => {
                   const open = rematchIndex === i;
-                  const destName = isSpotifySpotify ? "Spotify 2" : "Tidal";
+                  const hitDest = rematchDestLabel || destName;
                   return (
                     <li key={`${t.title}-${i}`} className="rounded-xl bg-black/30 p-2.5 border border-[var(--border)]/70">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="font-medium text-white truncate">{t.title}</div>
                           <div className="text-[var(--muted)] mt-0.5 truncate">{t.artists.join(", ")}</div>
+                          {t.side ? (
+                            <div className="text-[10px] text-[var(--muted)] mt-0.5">{t.side}</div>
+                          ) : null}
                         </div>
                         <button
                           type="button"
                           onClick={() => {
                             setRematchIndex(open ? null : i);
                             setRematchHits([]);
+                            setRematchDestLabel(destName);
                             setRematchQuery(`${t.title} ${t.artists[0] || ""}`.trim());
                           }}
                           className="shrink-0 rounded-lg border border-[var(--border)] px-2 py-1 text-[11px] hover:border-white"
@@ -552,6 +601,9 @@ function PairDetailInner() {
                       </div>
                       {open ? (
                         <div className="mt-2 border-t border-white/5 pt-2">
+                          <p className="mb-2 text-[10px] text-[var(--muted)]">
+                            Suche im Katalog von {hitDest}
+                          </p>
                           <div className="flex gap-2">
                             <input
                               value={rematchQuery}
@@ -581,7 +633,7 @@ function PairDetailInner() {
                                       {hit.title}
                                       <span className="text-[var(--muted)]"> · {hit.artists.join(", ")}</span>
                                     </span>
-                                    <span className="shrink-0 text-[var(--spotify)]">Nach {destName}</span>
+                                    <span className="shrink-0 text-[var(--spotify)]">Nach {hitDest}</span>
                                   </button>
                                 </li>
                               ))}
@@ -678,14 +730,16 @@ function PairDetailInner() {
   );
 }
 
-function modeName(mode: string) {
-  if (mode === "mirror") return "Mirror";
-  if (mode === "one_way_b_to_a") return "Ziel → Quelle";
-  return "Quelle → Ziel";
-}
-
-function isSourceToTarget(mode: string) {
-  return mode !== "mirror" && mode !== "one_way_b_to_a";
+function previewSummary(
+  plan: Plan,
+  labels: { a: string; b: string },
+): string {
+  const parts: string[] = [];
+  if (plan.addToTidal > 0) parts.push(`${plan.addToTidal} nach ${labels.b}`);
+  if (plan.addToSpotify > 0) parts.push(`${plan.addToSpotify} nach ${labels.a}`);
+  const removals = plan.removeFromSpotify + plan.removeFromTidal;
+  if (removals > 0) parts.push(`${removals} Löschungen`);
+  return parts.length ? parts.join(" · ") : "Nichts zu kopieren";
 }
 
 export default function PairDetailPage() {

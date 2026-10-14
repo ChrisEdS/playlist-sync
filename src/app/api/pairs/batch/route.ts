@@ -19,7 +19,7 @@ const batchSchema = z.object({
         spotify2PlaylistUrl: z.string().optional(),
         coverImage: z.string().optional(),
         syncMode: z
-          .enum(["additive", "mirror", "one_way_a_to_b", "one_way_b_to_a"])
+          .enum(["additive", "additive_b_to_a", "mirror", "one_way_a_to_b", "one_way_b_to_a"])
           .default("additive"),
       }),
     )

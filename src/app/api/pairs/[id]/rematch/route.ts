@@ -6,6 +6,7 @@ import { getDb, schema } from "@/lib/db";
 import { canonicalKey, normalizeArtist, normalizeTitle } from "@/lib/matching";
 import { addTracksToSpotifyPlaylist, searchSpotifyTracksByQuery } from "@/lib/providers/spotify";
 import { addTracksToTidalPlaylist, searchTidalTracksByQuery } from "@/lib/providers/tidal";
+import { isBtoA, sideLabels } from "@/lib/sync/modes";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -19,6 +20,26 @@ async function loadPair(id: string) {
   return { db, pair: rows[0] };
 }
 
+function rematchTarget(pair: {
+  pairType: string | null;
+  syncMode: string | null;
+}) {
+  const spotifySpotify = pair.pairType === "spotify_spotify";
+  const reverse = isBtoA(pair.syncMode);
+  if (spotifySpotify) {
+    return {
+      search: reverse ? ("spotify" as const) : ("spotify_2" as const),
+      destLabel: reverse ? sideLabels("spotify_spotify").a : sideLabels("spotify_spotify").b,
+      kind: reverse ? ("spotify" as const) : ("spotify_2" as const),
+    };
+  }
+  return {
+    search: reverse ? ("spotify" as const) : ("tidal" as const),
+    destLabel: reverse ? "Spotify" : "Tidal",
+    kind: reverse ? ("spotify" as const) : ("tidal" as const),
+  };
+}
+
 export async function GET(req: Request, { params }: Params) {
   const denied = await requireAuth();
   if (denied) return denied;
@@ -29,12 +50,14 @@ export async function GET(req: Request, { params }: Params) {
   const { pair } = await loadPair(id);
   if (!pair) return jsonError("Not found", 404);
 
-  const spotifySpotify = pair.pairType === "spotify_spotify";
-  const hits = spotifySpotify
-    ? await searchSpotifyTracksByQuery(query, "spotify_2")
-    : await searchTidalTracksByQuery(query);
+  const target = rematchTarget(pair);
+  const hits =
+    target.search === "tidal"
+      ? await searchTidalTracksByQuery(query)
+      : await searchSpotifyTracksByQuery(query, target.search);
 
   return NextResponse.json({
+    destLabel: target.destLabel,
     hits: hits.map((hit) => ({
       id: hit.id,
       title: hit.title,
@@ -59,7 +82,7 @@ export async function POST(req: Request, { params }: Params) {
   const { db, pair } = await loadPair(id);
   if (!pair) return jsonError("Not found", 404);
 
-  const spotifySpotify = pair.pairType === "spotify_spotify";
+  const target = rematchTarget(pair);
   const titleKey = normalizeTitle(body.title);
   const artistKey = normalizeArtist(body.artists);
   const rows = await db.select().from(schema.trackMatches);
@@ -67,7 +90,7 @@ export async function POST(req: Request, { params }: Params) {
     (row) => normalizeTitle(row.title) === titleKey && normalizeArtist(row.artists || []) === artistKey,
   );
 
-  if (!spotifySpotify) {
+  if (target.kind === "tidal") {
     if (matches.length) {
       for (const row of matches) {
         await db
@@ -94,11 +117,37 @@ export async function POST(req: Request, { params }: Params) {
         tidalNotFound: 0,
       });
     }
+  } else {
+    if (matches.length) {
+      for (const row of matches) {
+        await db
+          .update(schema.trackMatches)
+          .set({
+            spotifyTrackId: body.trackId,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.trackMatches.id, row.id));
+      }
+    } else {
+      await db.insert(schema.trackMatches).values({
+        canonicalKey: canonicalKey({
+          title: body.title,
+          artists: body.artists,
+          durationMs: 0,
+        }),
+        title: body.title,
+        artists: body.artists,
+        durationMs: 0,
+        spotifyTrackId: body.trackId,
+      });
+    }
   }
 
-  if (spotifySpotify && pair.spotify2PlaylistId) {
+  if (target.kind === "spotify_2" && pair.spotify2PlaylistId) {
     await addTracksToSpotifyPlaylist(pair.spotify2PlaylistId, [body.trackId], "spotify_2");
-  } else if (pair.tidalPlaylistId) {
+  } else if (target.kind === "spotify" && pair.spotifyPlaylistId) {
+    await addTracksToSpotifyPlaylist(pair.spotifyPlaylistId, [body.trackId], "spotify");
+  } else if (target.kind === "tidal" && pair.tidalPlaylistId) {
     await addTracksToTidalPlaylist(pair.tidalPlaylistId, [body.trackId]);
   } else {
     return jsonError("Ziel-Playlist fehlt", 400);
@@ -118,5 +167,5 @@ export async function POST(req: Request, { params }: Params) {
     .where(eq(schema.playlistPairs.id, pair.id))
     .returning();
 
-  return NextResponse.json({ pair: updated });
+  return NextResponse.json({ pair: updated, destLabel: target.destLabel });
 }

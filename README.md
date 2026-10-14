@@ -8,12 +8,12 @@ Inspired by FreeYourMusic-style workflows — this is an independent open-source
 
 ## Features
 
-- Source → destination sync by default (Spotify is only read; the target is filled — including a new empty playlist)
+- **Quelle → Ziel** in either direction: **Spotify → Tidal** or **Tidal → Spotify** (source is read-only; destination may start empty)
 - Optional **Mirror** mode (two-way, with a safety brake on mass deletes)
-- Optional second Spotify account (Spotify 1 → Spotify 2)
+- Optional second Spotify account (**Spotify 1 ↔ Spotify 2**, either direction)
 - OAuth keys in **Settings** (encrypted in the database)
 - Preview before sync, live progress, sync queue (one pair at a time)
-- Rematch unmatched tracks from the pair detail page
+- Rematch unmatched tracks into the current destination catalog
 - Daily cron on Vercel Hobby (`0 4 * * *`)
 - Optional app PIN, or Vercel Deployment Protection (`DISABLE_APP_PIN=1`)
 
@@ -100,15 +100,15 @@ Custom domain → update `APP_URL` and OAuth redirects.
 
 ## Sync model
 
-Default mode is **Quelle → Ziel**:
+Default mode is **Quelle → Ziel** — pick the direction per pair:
 
-- Spotify (account 1) is the source and is never modified
-- Missing tracks are matched and added to Tidal or Spotify 2
-- A brand-new empty destination playlist is the normal first copy
+- **Spotify → Tidal** (or Spotify 1 → Spotify 2): source is only read; missing tracks are added to the destination
+- **Tidal → Spotify** (or Spotify 2 → Spotify 1): same idea the other way; destination may be a new empty playlist
+- Nothing is deleted in Quelle → Ziel
 
 **Mirror** keeps both sides aligned (including deletes), with a hold when too many removals would run at once.
 
-Matching prefers ISRC, then title/artist/duration. Unmatched tracks appear on the pair page and can be rematched manually.
+Matching prefers ISRC, then title/artist/duration. Unmatched tracks appear on the pair page and can be rematched into the current destination.
 
 Sync jobs run **one after another** (with a short pause) to reduce Spotify/Tidal rate limits (`429`). Prefer syncing a few pairs after a limit, not all at once.
 
