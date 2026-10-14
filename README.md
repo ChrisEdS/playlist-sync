@@ -1,117 +1,138 @@
 # Music Sync
 
-Single-user **Spotify ↔ Tidal** playlist Voll-Sync, inspired by FreeYourMusic. Hosted on **Vercel** with **Neon** Postgres.
+Single-user **Spotify → Tidal** (and optional **Spotify → Spotify 2**) playlist sync for self-hosting on **Vercel** + **Neon**.
+
+Inspired by FreeYourMusic-style workflows — this is an independent open-source project, **not affiliated** with Spotify, Tidal, or FreeYourMusic.
+
+> One deploy = one operator. This is not a multi-tenant SaaS.
 
 ## Features
 
-- Private deploy (Vercel Auth / Deployment Protection; optional app PIN)
-- Spotify + Tidal OAuth — developer keys can be set in **Settings** (encrypted in Neon)
-- Pair playlists; default **additive** sync, optional **mirror** (with confirm before deletes)
-- Dry-run preview before applying
-- ISRC-first matching with title/artist/duration fallback; unmatched tracks listed per pair
-- Dashboard onboarding + pair detail (sync now, disable, unmatched)
-- Daily cron sync on Vercel Hobby (`0 4 * * *`)
+- Source → destination sync by default (Spotify is only read; the target is filled — including a new empty playlist)
+- Optional **Mirror** mode (two-way, with a safety brake on mass deletes)
+- Optional second Spotify account (Spotify 1 → Spotify 2)
+- OAuth keys in **Settings** (encrypted in the database)
+- Preview before sync, live progress, sync queue (one pair at a time)
+- Rematch unmatched tracks from the pair detail page
+- Daily cron on Vercel Hobby (`0 4 * * *`)
+- Optional app PIN, or Vercel Deployment Protection (`DISABLE_APP_PIN=1`)
+
+UI language is currently **German**.
 
 ## Stack
 
 - Next.js (App Router) on Vercel
 - Neon Postgres via Drizzle ORM (local: embedded PGlite)
 - Vercel Cron → `/api/cron/sync`
-- Sync jobs via `waitUntil` + `maxDuration` 300s
+- Background jobs via `waitUntil` (`maxDuration` 300s)
 
-## Setup
-
-### 1. Clone & install
+## Quick start (local)
 
 ```bash
+git clone https://github.com/ChrisEdS/Music_Sync.git
+cd Music_Sync
 npm install
 cp .env.example .env.local
 ```
 
-### 2. Environment
-
-Fill `.env.local` (and the same core vars in the Vercel project):
-
-| Variable | Purpose |
-| --- | --- |
-| `APP_PIN` | PIN to unlock the UI (local / if PIN enabled) |
-| `DISABLE_APP_PIN` | Set `1` to skip app PIN (e.g. when Vercel Auth is enough) |
-| `APP_URL` | Public URL (`http://localhost:3000` locally, your Vercel URL in prod) |
-| `TOKEN_ENCRYPTION_KEY` | Long random secret (`openssl rand -hex 32`) |
-| `SESSION_SECRET` | Long random secret for session cookies |
-| `CRON_SECRET` | Bearer token for cron (`Authorization: Bearer …`) |
-| `DATABASE_URL` | Neon connection string (empty locally → PGlite) |
-| `SPOTIFY_*` / `TIDAL_*` | Optional env fallbacks — preferred: paste keys in **Settings** |
-| `TIDAL_COUNTRY` | Optional catalog country, default `DE` |
-
-### 3. Spotify & Tidal developer apps
-
-Links are also in the in-app Settings:
-
-1. [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) → create app  
-   Redirect URI: `{APP_URL}/api/auth/spotify/callback`
-2. [Tidal Developer Portal](https://developer.tidal.com/dashboard) → create app  
-   Redirect URI: `{APP_URL}/api/auth/tidal/callback` (authorization code + PKCE)
-3. Paste Client ID / Secret under **Settings**, then **Connect account**
-
-Spotify may require Premium + Dev Mode allowlisting for personal use.
-
-### 4. Database
-
-**Local (default):** leave `DATABASE_URL` empty — embedded **PGlite** in `./data/pglite` (auto-migrates).
-
-**Production / Neon:**
+Generate secrets and put them in `.env.local`:
 
 ```bash
-# set DATABASE_URL in .env.local or Vercel, then:
-npm run db:push
+openssl rand -hex 32   # TOKEN_ENCRYPTION_KEY
+openssl rand -hex 32   # SESSION_SECRET
+openssl rand -hex 32   # CRON_SECRET
 ```
 
-### 5. Run locally
+Leave `DATABASE_URL` empty for local PGlite (`./data/pglite`).
 
 ```bash
 npm run dev
 ```
 
-Open `http://localhost:3000`, unlock if PIN is enabled (see `.dev-pin` if generated), complete Settings → Connect → **+ Pair playlist**.
+Open [http://localhost:3000](http://localhost:3000) → enter PIN if enabled → **Einstellungen** → save Spotify/Tidal developer keys → connect accounts → **+ Playlist paaren**.
+
+## Environment
+
+| Variable | Purpose |
+| --- | --- |
+| `APP_PIN` | PIN to unlock the UI (local / if PIN enabled) |
+| `DISABLE_APP_PIN` | `1` skips app PIN (e.g. Vercel Auth is enough) |
+| `APP_URL` | Public URL (`http://localhost:3000` or your Vercel URL) |
+| `TOKEN_ENCRYPTION_KEY` | Encrypts OAuth tokens + in-app keys (`openssl rand -hex 32`) |
+| `SESSION_SECRET` | Session cookie secret |
+| `CRON_SECRET` | Bearer token for `/api/cron/sync` |
+| `DATABASE_URL` | Neon URL (empty locally → PGlite) |
+| `SPOTIFY_*` / `TIDAL_*` | Optional env fallbacks — prefer **Settings** in the UI |
+| `TIDAL_COUNTRY` | Catalog country, default `DE` |
+
+See `.env.example` for a full template.
+
+## Spotify & Tidal developer apps
+
+Also linked from in-app Settings:
+
+1. [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) → create app  
+   Redirect: `{APP_URL}/api/auth/spotify/callback`  
+   Typical scopes: playlist read/write, user library (as requested by the app)
+2. [Tidal Developer Portal](https://developer.tidal.com/dashboard) → create app  
+   Redirect: `{APP_URL}/api/auth/tidal/callback` (authorization code + PKCE)  
+   Scopes used: `playlists.read`, `playlists.write`, `collection.read`, `collection.write`, `search.read`, `user.read`
+3. Paste Client ID / Secret under **Einstellungen**, then connect
+
+Spotify often needs **Premium** and **Dev Mode** allowlisting for personal apps.
 
 ## Deploy on Vercel
 
-1. Import the GitHub repo (`main`) in Vercel
-2. Add env vars from `.env.example` (at least encryption, session, cron, `APP_URL`)
-3. Add Neon from the Vercel Marketplace (`DATABASE_URL`)
+1. Fork or import this repo into Vercel (`main`)
+2. Set env vars from `.env.example` (at least encryption, session, cron, `APP_URL`)
+3. Add **Neon** from the Vercel Marketplace (`DATABASE_URL`)
 4. Optionally set `DISABLE_APP_PIN=1` if Deployment Protection covers access
-5. After first deploy, run `npm run db:push` against that `DATABASE_URL`
-6. Register **production** OAuth redirect URIs in Spotify + Tidal
-7. Cron is in `vercel.ts` (`0 4 * * *` daily on Hobby). Pro can use `*/15 * * * *`. Keep `CRON_SECRET` set.
+5. After first deploy, run against that database:
 
-Optional: custom domain → update `APP_URL` + OAuth redirects.
+   ```bash
+   npm run db:push
+   ```
+
+6. Register **production** OAuth redirect URIs in Spotify + Tidal
+7. Cron is defined in `vercel.ts` (daily on Hobby). Keep `CRON_SECRET` set.
+
+Custom domain → update `APP_URL` and OAuth redirects.
 
 ## Sync model
 
-For each playlist pair we store a **canonical snapshot** of track keys (ISRC preferred). Each run:
+Default mode is **Quelle → Ziel**:
 
-1. Loads Spotify + Tidal membership
-2. Diffs each side against the snapshot
-3. Builds a desired set (**additive**: only adds; **mirror**: adds + removes)
-4. Matches missing tracks on the other service
-5. Applies changes and writes a new snapshot
+- Spotify (account 1) is the source and is never modified
+- Missing tracks are matched and added to Tidal or Spotify 2
+- A brand-new empty destination playlist is the normal first copy
 
-Unmatched tracks are recorded on the pair and do not block the rest.
+**Mirror** keeps both sides aligned (including deletes), with a hold when too many removals would run at once.
+
+Matching prefers ISRC, then title/artist/duration. Unmatched tracks appear on the pair page and can be rematched manually.
+
+Sync jobs run **one after another** (with a short pause) to reduce Spotify/Tidal rate limits (`429`). Prefer syncing a few pairs after a limit, not all at once.
 
 ## Project layout
 
 ```
-src/app          UI + API routes
-src/lib/db       Drizzle schema
+src/app           UI + API routes
+src/lib/db        Drizzle schema
 src/lib/providers Spotify / Tidal clients + encrypted credentials
 src/lib/matching  ISRC + fuzzy matching
-src/lib/sync      Snapshot-diff engine + jobs
+src/lib/sync      Engine + queue
 vercel.ts         Cron config
 ```
 
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+## Security
+
+See [SECURITY.md](SECURITY.md). Do not open public issues that include secrets, tokens, or `.env` contents.
+
 ## Notes
 
-- UI inspired by FreeYourMusic-style dashboards for personal self-hosting — not their product code.
-- UD Media / PHP shared hosting is not supported; use Vercel.
-- Large libraries sync in batches; Hobby cron runs once daily — use **Sync now** anytime.
+- Not affiliated with Spotify, Tidal, or FreeYourMusic.
+- Respect each provider’s developer terms and API rate limits.
+- UD Media / PHP shared hosting is not supported.
