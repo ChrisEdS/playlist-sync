@@ -339,7 +339,7 @@ export async function createSpotifyPlaylist(
     },
     body: JSON.stringify({
       name,
-      description: description || "Synced by Music Sync",
+      description: description || "Synced by Playlist Sync",
       public: false,
     }),
   });

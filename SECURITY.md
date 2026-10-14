@@ -12,7 +12,7 @@ Email the maintainer privately (GitHub profile / commit author) with:
 
 ## What this app stores
 
-Music Sync is a **single-user self-hosted** app. Each deploy is meant for one operator.
+Playlist Sync is a **single-user self-hosted** app. Each deploy is meant for one operator.
 
 Encrypted at rest in your database (when `TOKEN_ENCRYPTION_KEY` is set):
 

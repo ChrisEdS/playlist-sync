@@ -57,14 +57,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[linear-gradient(135deg,#1ed760,#00d4ff)] text-black font-bold text-sm shadow-[0_0_25px_rgba(30,215,96,0.3)]"
             style={{ fontFamily: "var(--font-syne), sans-serif" }}
           >
-            MS
+            PS
           </div>
           <div className="min-w-0">
             <span
               className="text-sm font-semibold tracking-tight block text-white truncate"
               style={{ fontFamily: "var(--font-syne), sans-serif" }}
             >
-              Music Sync
+              Playlist Sync
             </span>
             <span className="text-[10px] text-[var(--muted)] uppercase tracking-wider block">
               Voll-Sync
@@ -107,13 +107,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="grid h-8 w-8 place-items-center rounded-xl bg-[linear-gradient(135deg,#1ed760,#00d4ff)] text-black font-bold text-xs"
             style={{ fontFamily: "var(--font-syne), sans-serif" }}
           >
-            MS
+            PS
           </div>
           <span
             className="font-semibold text-white tracking-tight"
             style={{ fontFamily: "var(--font-syne), sans-serif" }}
           >
-            Music Sync
+            Playlist Sync
           </span>
         </Link>
         <span className="text-[11px] rounded-full border border-[var(--border)] bg-black/40 px-2.5 py-1 text-[var(--muted)]">

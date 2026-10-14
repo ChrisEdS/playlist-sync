@@ -1,4 +1,4 @@
-# Music Sync
+# Playlist Sync
 
 Single-user **Spotify → Tidal** (and optional **Spotify → Spotify 2**) playlist sync for self-hosting on **Vercel** + **Neon**.
 

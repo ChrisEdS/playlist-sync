@@ -44,7 +44,7 @@ function LoginForm() {
           className="mt-3 text-4xl font-semibold tracking-tight"
           style={{ fontFamily: "var(--font-syne), sans-serif" }}
         >
-          Music Sync
+          Playlist Sync
         </h1>
         <p className="mt-3 text-[var(--muted)]">
           Spotify ↔ Tidal Voll-Sync. Gib deinen Instance-PIN ein.

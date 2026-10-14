@@ -13,7 +13,7 @@ const syne = Syne({
 });
 
 export const metadata: Metadata = {
-  title: "Music Sync",
+  title: "Playlist Sync",
   description: "Keep Spotify and Tidal playlists in sync",
 };
 

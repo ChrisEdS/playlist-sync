@@ -377,7 +377,7 @@ export async function createTidalPlaylist(name: string): Promise<NormalizedPlayl
         type: "playlists",
         attributes: {
           name,
-          description: "Synced by Music Sync",
+          description: "Synced by Playlist Sync",
           privacy: "PRIVATE",
         },
       },
