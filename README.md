@@ -29,8 +29,8 @@ UI language is currently **German**.
 ## Quick start (local)
 
 ```bash
-git clone https://github.com/ChrisEdS/Music_Sync.git
-cd Music_Sync
+git clone https://github.com/ChrisEdS/Playlist-Sync.git
+cd Playlist-Sync
 npm install
 cp .env.example .env.local
 ```
