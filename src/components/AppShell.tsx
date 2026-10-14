@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { DONATION_LABEL, DONATION_URL } from "@/lib/donation";
 
 const nav = [
   {
@@ -94,9 +95,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className="pt-4 border-t border-[var(--border)] px-2">
+        <div className="pt-4 border-t border-[var(--border)] px-2 space-y-2">
           <p className="text-[11px] text-[var(--muted)]">Spotify ↔ Tidal</p>
           <p className="text-[10px] text-[var(--muted)]/60">Single-User Sync</p>
+          <a
+            href={DONATION_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--muted)] transition hover:border-[var(--spotify)] hover:text-white"
+          >
+            <span aria-hidden>♥</span>
+            {DONATION_LABEL}
+          </a>
         </div>
       </aside>
 

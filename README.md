@@ -29,8 +29,8 @@ UI language is currently **German**.
 ## Quick start (local)
 
 ```bash
-git clone https://github.com/ChrisEdS/Playlist-Sync.git
-cd Playlist-Sync
+git clone https://github.com/ChrisEdS/playlist-sync.git
+cd playlist-sync
 npm install
 cp .env.example .env.local
 ```
@@ -122,6 +122,10 @@ src/lib/matching  ISRC + fuzzy matching
 src/lib/sync      Engine + queue
 vercel.ts         Cron config
 ```
+
+## Support
+
+If Playlist Sync saves you time, you can sponsor development via [GitHub Sponsors](https://github.com/sponsors/ChrisEdS). The app also links there under **Unterstützen** (sidebar + Settings). Override the URL with `NEXT_PUBLIC_DONATION_URL` if you fork and use another provider.
 
 ## License
 

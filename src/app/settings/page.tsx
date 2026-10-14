@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { ServiceBadge } from "@/components/ServiceBadge";
 import { useStatus } from "@/hooks/useStatus";
+import { DONATION_LABEL, DONATION_URL } from "@/lib/donation";
 import { errorSuggestsReconnect, formatApiError } from "@/lib/format-error";
 
 const DEVELOPER_APPS = {
@@ -261,6 +262,23 @@ function SettingsInner() {
               <code className="text-[var(--accent)]">DISABLE_APP_PIN=1</code> setzen.
             </p>
           )}
+        </div>
+
+        <div className="mt-6 rounded-3xl border border-[var(--border)] bg-[var(--bg-panel)] p-5">
+          <h2 className="font-semibold">Projekt unterstützen</h2>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Playlist Sync ist Open Source und kostenlos. Eine Spende hilft bei Weiterentwicklung und
+            Hosting-Kosten.
+          </p>
+          <a
+            href={DONATION_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(120deg,#1ed760,#e8ff6b)] px-5 py-2.5 text-sm font-semibold text-black hover:brightness-110 transition"
+          >
+            <span aria-hidden>♥</span>
+            {DONATION_LABEL}
+          </a>
         </div>
 
         {!pinDisabled ? (

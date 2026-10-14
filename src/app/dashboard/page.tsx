@@ -153,7 +153,7 @@ export default function DashboardPage() {
               </span>
             </div>
             <p className="mt-2.5 font-semibold text-lg">
-              {data.activePair?.name || data.activeJob.currentTrack || "Playlist-Sync"}
+              {data.activePair?.name || data.activeJob.currentTrack || "Playlist Sync"}
             </p>
             <div className="mt-3">
               <ProgressBar
