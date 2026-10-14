@@ -11,6 +11,8 @@ Inspired by FreeYourMusic-style workflows — independent open source, **not aff
 
 German UI.
 
+![Playlist Sync dashboard](docs/screenshots/dashboard.jpg)
+
 ## Sponsor this project
 
 If Playlist Sync helps you, you can support development via **GitHub Sponsors**:
