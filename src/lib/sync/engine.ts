@@ -122,6 +122,11 @@ async function resolveIdForSide(
     ? await searchSpotifyTrack(source, side as "spotify" | "spotify_2")
     : await searchTidalTrack(source);
 
+  // Tidal search is easy to rate-limit when copying a full playlist track-by-track.
+  if (side === "tidal") {
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+
   if (!found) {
     // Record negative cache hit so future cron passes don't re-search needlessly
     if (hit) {

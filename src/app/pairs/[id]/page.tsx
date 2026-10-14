@@ -593,6 +593,11 @@ function PairDetailInner() {
                   );
                 })}
               </ul>
+            ) : pair.lastError ? (
+              <p className="mt-4 text-xs text-[var(--muted)] py-4">
+                Der letzte Sync ist abgebrochen — eine Trefferliste gibt es deshalb noch nicht.
+                Nach einem erfolgreichen Lauf erscheinen hier fehlende Songs.
+              </p>
             ) : (
               <p className="mt-4 text-xs text-[var(--muted)] py-4">
                 Keine nicht-zugeordneten Songs beim letzten Sync. Alle Titel wurden erfolgreich abgeglichen.

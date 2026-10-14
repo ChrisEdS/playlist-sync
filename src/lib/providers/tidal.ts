@@ -303,6 +303,12 @@ export async function getTidalPlaylistTracks(playlistId: string): Promise<Normal
     }
     return tracks;
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    // Rate limits and auth errors must not be retried as a different include path —
+    // that only burns more quota and can look like an empty playlist.
+    if (message.includes("429") || message.includes(" 401 ") || message.includes(" 403 ")) {
+      throw err;
+    }
     // If include=items failed, retry without include
     path = `/playlists/${playlistId}/relationships/items`;
     tracks.length = 0;

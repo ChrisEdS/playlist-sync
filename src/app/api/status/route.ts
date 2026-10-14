@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { desc, eq, inArray } from "drizzle-orm";
+import { waitUntil } from "@vercel/functions";
 import { requireAuth } from "@/lib/api";
 import { isAppPinDisabled } from "@/lib/auth-mode";
 import { getDb, schema } from "@/lib/db";
 import { credentialsStatus } from "@/lib/providers/credentials";
 import { connectionStatus } from "@/lib/providers/tokens";
+import { kickQueue, recoverStaleJobs } from "@/lib/sync/queue";
 
 export async function GET() {
   const denied = await requireAuth();
@@ -12,6 +14,8 @@ export async function GET() {
 
   try {
     const db = await getDb();
+    await recoverStaleJobs();
+
     const [connections, pairs, jobs, credentials] = await Promise.all([
       connectionStatus(),
       db.select().from(schema.playlistPairs).orderBy(desc(schema.playlistPairs.createdAt)),
@@ -77,6 +81,11 @@ export async function GET() {
     });
     const queuedCount = liveJobs.filter((job) => job.status === "queued").length;
     const runningCount = liveJobs.filter((job) => job.status === "running").length;
+    // Serverless drains die between invocations — keep the queue moving when the
+    // dashboard is open and nothing is actively running.
+    if (queuedCount > 0 && runningCount === 0) {
+      waitUntil(kickQueue());
+    }
 
     return NextResponse.json({
       connections,

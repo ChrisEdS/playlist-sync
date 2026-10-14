@@ -279,13 +279,18 @@ export async function getSpotifyPlaylistTracks(
     }
     return tracks;
   } catch (err) {
-    // If standard API returned 403 (happens on followed/non-owned playlists due to Spotify policy),
-    // try the public embed fallback which reliably provides track list for public playlists.
+    const message = err instanceof Error ? err.message : String(err);
+    // Followed/non-owned playlists often 403 on /items — public embed still works.
+    // Also try embed on 429: it does not burn the same Spotify Web API quota.
     try {
       const fallbackTracks = await fetchFollowedSpotifyPlaylistTracks(playlistId);
       if (fallbackTracks.length > 0) return fallbackTracks;
     } catch {
-      // Continue to retry legacy /tracks
+      // Continue to legacy /tracks when appropriate
+    }
+
+    if (message.includes("429") || message.includes(" 401 ")) {
+      throw err;
     }
 
     // Retry legacy /tracks endpoint as secondary fallback

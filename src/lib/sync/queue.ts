@@ -1,14 +1,56 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb, schema } from "../db";
 import { runSyncJob } from "./engine";
 
-const GAP_MS = 3000;
+const GAP_MS = 8_000;
+const GAP_AFTER_429_MS = 30_000;
 const DRAIN_BUDGET_MS = 240_000;
+const STALE_SYNC_MS = 12 * 60_000;
+const STALE_GAP_MS = 20_000;
 
 let draining: Promise<void> | null = null;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function recoverStaleJobs() {
+  const db = await getDb();
+  const running = await db
+    .select()
+    .from(schema.syncJobs)
+    .where(eq(schema.syncJobs.status, "running"))
+    .limit(50);
+  const now = Date.now();
+
+  for (const job of running) {
+    const started = job.startedAt ? new Date(job.startedAt).getTime() : 0;
+    if (!started) continue;
+
+    if (job.type === "gap" && now - started > STALE_GAP_MS) {
+      await db.delete(schema.syncJobs).where(eq(schema.syncJobs.id, job.id));
+      continue;
+    }
+
+    if (job.type !== "gap" && now - started > STALE_SYNC_MS) {
+      const message = "Sync abgebrochen (Timeout). Bitte erneut starten.";
+      await db
+        .update(schema.syncJobs)
+        .set({
+          status: "failed",
+          error: message,
+          message,
+          finishedAt: new Date(),
+        })
+        .where(eq(schema.syncJobs.id, job.id));
+      if (job.pairId) {
+        await db
+          .update(schema.playlistPairs)
+          .set({ status: "error", lastError: message, updatedAt: new Date() })
+          .where(eq(schema.playlistPairs.id, job.pairId));
+      }
+    }
+  }
 }
 
 async function hasActiveRunning() {
@@ -21,27 +63,16 @@ async function hasActiveRunning() {
   const now = Date.now();
   return rows.some((job) => {
     const started = job.startedAt ? new Date(job.startedAt).getTime() : 0;
-    const maxAge = job.type === "gap" ? 20_000 : 15 * 60_000;
+    const maxAge = job.type === "gap" ? STALE_GAP_MS : STALE_SYNC_MS;
     return !started || now - started < maxAge;
   });
 }
 
 async function claimNextQueued() {
-  const db = await getDb();
-  const staleGaps = await db
-    .select()
-    .from(schema.syncJobs)
-    .where(and(eq(schema.syncJobs.type, "gap"), eq(schema.syncJobs.status, "running")))
-    .limit(5);
-  for (const gap of staleGaps) {
-    const started = gap.startedAt ? new Date(gap.startedAt).getTime() : 0;
-    if (started && Date.now() - started > 20_000) {
-      await db.delete(schema.syncJobs).where(eq(schema.syncJobs.id, gap.id));
-    }
-  }
-
+  await recoverStaleJobs();
   if (await hasActiveRunning()) return null;
 
+  const db = await getDb();
   const [next] = await db
     .select()
     .from(schema.syncJobs)
@@ -58,7 +89,7 @@ async function claimNextQueued() {
   return claimed ?? null;
 }
 
-async function holdGap() {
+async function holdGap(ms: number) {
   const db = await getDb();
   const [gap] = await db
     .insert(schema.syncJobs)
@@ -70,7 +101,7 @@ async function holdGap() {
     })
     .returning();
   try {
-    await sleep(GAP_MS);
+    await sleep(ms);
   } finally {
     await db.delete(schema.syncJobs).where(eq(schema.syncJobs.id, gap.id));
   }
@@ -79,15 +110,19 @@ async function holdGap() {
 async function drain() {
   const started = Date.now();
   let ranOne = false;
+  let nextGap = GAP_MS;
   while (Date.now() - started < DRAIN_BUDGET_MS) {
-    if (ranOne) await holdGap();
+    if (ranOne) await holdGap(nextGap);
     const job = await claimNextQueued();
     if (!job) return;
     ranOne = true;
+    nextGap = GAP_MS;
     try {
       await runSyncJob(job.id, { forceMirror: job.type === "sync_force" });
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       console.error("Queued sync failed", job.id, err);
+      if (message.includes("429")) nextGap = GAP_AFTER_429_MS;
     }
   }
 }
@@ -111,7 +146,12 @@ export async function enqueuePairSync(
   const existing = await db
     .select()
     .from(schema.syncJobs)
-    .where(and(eq(schema.syncJobs.pairId, pairId), eq(schema.syncJobs.status, "queued")))
+    .where(
+      and(
+        eq(schema.syncJobs.pairId, pairId),
+        inArray(schema.syncJobs.status, ["queued", "running"]),
+      ),
+    )
     .limit(1);
   if (existing[0]) {
     kickQueue();
@@ -137,15 +177,21 @@ export async function enqueueEnabledPairs(message: string) {
     .select()
     .from(schema.playlistPairs)
     .where(eq(schema.playlistPairs.enabled, 1));
-  const queued = await db
-    .select({ pairId: schema.syncJobs.pairId })
+  const open = await db
+    .select({ pairId: schema.syncJobs.pairId, status: schema.syncJobs.status })
     .from(schema.syncJobs)
-    .where(eq(schema.syncJobs.status, "queued"));
-  const queuedIds = new Set(queued.map((row) => row.pairId).filter(Boolean));
+    .where(inArray(schema.syncJobs.status, ["queued", "running"]));
+  const busyIds = new Set(open.map((row) => row.pairId).filter(Boolean));
 
   const jobs = [];
   for (const pair of pairs) {
-    if (pair.status === "syncing" || queuedIds.has(pair.id)) continue;
+    if (pair.status === "syncing" || busyIds.has(pair.id)) continue;
+    // Skip pairs that just hit the API limit — they need a cooldown.
+    const err = (pair.lastError || "").toLowerCase();
+    if (err.includes("429")) {
+      const updated = pair.updatedAt ? new Date(pair.updatedAt).getTime() : 0;
+      if (updated && Date.now() - updated < 10 * 60_000) continue;
+    }
     const [job] = await db
       .insert(schema.syncJobs)
       .values({
