@@ -1,6 +1,6 @@
 {
   "name": "playlist-sync",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "funding": "https://github.com/sponsors/ChrisEdS",
   "scripts": {
